@@ -15,6 +15,7 @@ web/dist/
 
 # Local data
 .env
+*.rdb
 data/
 uploads/
 eval/cache/

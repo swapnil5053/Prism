@@ -74,3 +74,5 @@ addopts = "-ra --import-mode=importlib"
 [tool.coverage.run]
 source = ["src/prism"]
 branch = true
+# SQLAlchemy's asyncio layer runs on greenlets; without this, lines after awaits look unrun.
+concurrency = ["greenlet", "thread"]
