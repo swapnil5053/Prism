@@ -13,7 +13,7 @@ from prism import __version__
 from prism.config import Settings, get_settings
 from prism.db.session import make_engine, make_sessionmaker
 
-from .routes import health
+from .routes import analyses, health
 
 log = logging.getLogger(__name__)
 
@@ -70,4 +70,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     app.include_router(health.router)
+    app.include_router(analyses.router)
     return app
