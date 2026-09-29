@@ -109,48 +109,104 @@ def oracle(data: Path, limit: int | None) -> dict[str, Any]:
     }
 
 
-def detect(data: Path, limit: int | None, model: str, quant: str, max_side: int) -> dict[str, Any]:
+def detect(
+    data: Path,
+    limit: int | None,
+    model: str,
+    quant: str,
+    max_side: int,
+    pages_log: Path | None = None,
+    max_new_tokens: int = 2048,
+) -> dict[str, Any]:
     import torch
 
     from prism.vision.qwen import QwenDetector
 
-    detector = QwenDetector(model, quant=quant, max_side=max_side)  # type: ignore[arg-type]
+    detector = QwenDetector(
+        model,
+        quant=quant,  # type: ignore[arg-type]
+        max_side=max_side,
+        max_new_tokens=max_new_tokens,
+    )
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
 
     det = DetectionScore()
     rules: dict[str, Counts] = defaultdict(Counts)
     latencies: list[float] = []
-    valid = truncated = pages = 0
-    for page in load(data, limit):
-        with Image.open(page.image) as img:
-            image = img.convert("RGB")
-        started = time.perf_counter()
-        run = detector.run(image)
-        result = audit(image, run.parsed.elements, page.dpr)
-        latencies.append(time.perf_counter() - started)
-        pages += 1
-        valid += run.parsed.valid_json
-        truncated += run.parsed.truncated
+    valid = truncated = hit_limit = pages = errors = 0
+    total = sum(1 for _ in load(data, limit))
+    log = pages_log.open("w", encoding="utf-8") if pages_log else None
+    try:
+        for page in load(data, limit):
+            with Image.open(page.image) as img:
+                image = img.convert("RGB")
+            started = time.perf_counter()
+            try:
+                run = detector.run(image)
+            except torch.cuda.OutOfMemoryError:
+                # One oversized page shouldn't end an unattended run.
+                errors += 1
+                torch.cuda.empty_cache()
+                print(f"[{pages + errors}/{total}] {page.image.name}: out of memory, skipped")
+                continue
+            result = audit(image, run.parsed.elements, page.dpr)
+            seconds = time.perf_counter() - started
+            latencies.append(seconds)
+            pages += 1
+            valid += run.parsed.valid_json
+            truncated += run.parsed.truncated
+            hit_limit += run.new_tokens >= max_new_tokens
 
-        truth: list[Element] = [t.element for t in page.elements]
-        score, pairs = match(run.parsed.elements, truth)
-        det.add(score)
-        per_rule = _finding_counts(result.findings, true_findings(page), dict(pairs))
-        for rule, c in per_rule.items():
-            rules[rule].add(c)
+            truth: list[Element] = [t.element for t in page.elements]
+            score, pairs = match(run.parsed.elements, truth)
+            det.add(score)
+            per_rule = _finding_counts(result.findings, true_findings(page), dict(pairs))
+            for rule, c in per_rule.items():
+                rules[rule].add(c)
+
+            print(
+                f"[{pages + errors}/{total}] {page.image.name}: {seconds:.1f}s, "
+                f"{run.new_tokens} tokens, {len(run.parsed.elements)}/{len(truth)} elements, "
+                f"running F1 {det.overall.f1:.3f}",
+                flush=True,
+            )
+            if log is not None:
+                record = {
+                    "image": page.image.name,
+                    "seconds": round(seconds, 2),
+                    "input_size": run.input_size,
+                    "new_tokens": run.new_tokens,
+                    "valid_json": run.parsed.valid_json,
+                    "truncated": run.parsed.truncated,
+                    "dropped": run.parsed.dropped,
+                    "matched": score.overall.tp,
+                    "predicted": len(run.parsed.elements),
+                    "truth": len(truth),
+                    "raw": run.raw_text,
+                }
+                log.write(json.dumps(record) + "\n")
+                log.flush()
+    finally:
+        if log is not None:
+            log.close()
 
     peak_gb = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else None
     return {
         "model": detector.version,
         "pages": pages,
-        "valid_json_rate": valid / pages if pages else None,
-        "truncated_rate": truncated / pages if pages else None,
-        "latency_s": {"p50": percentile(latencies, 0.5), "p95": percentile(latencies, 0.95)},
-        "peak_vram_gb": peak_gb,
+        "pages_out_of_memory": errors,
+        "valid_json_rate": round(valid / pages, 3) if pages else None,
+        "truncated_rate": round(truncated / pages, 3) if pages else None,
+        "hit_token_limit_rate": round(hit_limit / pages, 3) if pages else None,
+        "latency_s": {
+            "p50": round(percentile(latencies, 0.5), 2),
+            "p95": round(percentile(latencies, 0.95), 2),
+        },
+        "peak_vram_gb": round(peak_gb, 2) if peak_gb is not None else None,
         "detection": {
             "overall": _counts(det.overall),
-            "by_kind": {k.value: _counts(c) for k, c in sorted(det.by_kind.items())},
+            **{k.value: _counts(c) for k, c in sorted(det.by_kind.items())},
         },
         "rules_end_to_end": {r: _counts(c) for r, c in sorted(rules.items())},
     }
@@ -175,6 +231,9 @@ def _markdown(summary: dict[str, Any]) -> str:
             continue
         first = next(iter(rows.values()))
         if isinstance(first, dict):
+            rows = {k: v for k, v in rows.items() if v}
+            if not rows:
+                continue
             cols = list(first.keys())
             lines += [
                 f"\n**{section}**\n",
@@ -207,6 +266,7 @@ def main() -> None:
             p.add_argument("--model", default="Qwen/Qwen2.5-VL-3B-Instruct")
             p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
             p.add_argument("--max-side", type=int, default=1280)
+            p.add_argument("--max-new-tokens", type=int, default=2048)
 
     args = parser.parse_args()
     if args.cmd == "synth":
@@ -219,12 +279,23 @@ def main() -> None:
     if args.cmd == "oracle":
         summary = oracle(args.data, args.limit)
     else:
-        summary = detect(args.data, args.limit, args.model, args.quant, args.max_side)
+        pages_log = args.results.with_suffix(".pages.jsonl") if args.results else None
+        if pages_log:
+            pages_log.parent.mkdir(parents=True, exist_ok=True)
+        summary = detect(
+            args.data,
+            args.limit,
+            args.model,
+            args.quant,
+            args.max_side,
+            pages_log,
+            args.max_new_tokens,
+        )
     summary["dataset"] = str(args.data)
     print(_markdown(summary))
     if args.results:
         args.results.parent.mkdir(parents=True, exist_ok=True)
-        args.results.write_text(json.dumps(summary, indent=2) + "\n")
+        args.results.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

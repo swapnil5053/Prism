@@ -37,7 +37,7 @@ def _rgb(value: str | None) -> tuple[int, int, int] | None:
 
 
 def load(root: Path, limit: int | None = None) -> Iterator[Page]:
-    with (root / "labels.jsonl").open() as fh:
+    with (root / "labels.jsonl").open(encoding="utf-8") as fh:
         for n, line in enumerate(fh):
             if limit is not None and n >= limit:
                 return
