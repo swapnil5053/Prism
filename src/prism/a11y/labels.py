@@ -48,4 +48,4 @@ def _labels(text: Element, control: Element, width: int, height: int) -> bool:
     # Directly above.
     h_overlap = min(t.x2, c.x2) - max(t.x1, c.x1)
     gap_above = (c.y1 - t.y2) * height
-    return h_overlap > 0 and 0 <= gap_above <= ch
+    return h_overlap > 0 and 0 <= gap_above <= 0.5 * ch
