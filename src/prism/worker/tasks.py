@@ -1,0 +1,136 @@
+import asyncio
+import logging
+import threading
+import time
+import uuid
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+from PIL import Image
+from redis.asyncio import Redis
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from prism import events
+from prism.api.uploads import resolve_key
+from prism.config import Settings
+from prism.db.models import Analysis, AnalysisStatus
+from prism.domain import AnalysisResult
+from prism.events import Event
+from prism.vision.base import DetectionCanceled, Detector
+
+log = logging.getLogger(__name__)
+
+CANCEL_POLL_S = 0.5
+FAILED_MESSAGE = "Analysis failed. The error has been logged."
+
+
+async def analyze(ctx: dict[str, Any], analysis_id: str) -> str:
+    settings: Settings = ctx["settings"]
+    sessions: async_sessionmaker[AsyncSession] = ctx["sessionmaker"]
+    redis: Redis = ctx["redis"]
+    detector: Detector = ctx["detector"]
+    aid = uuid.UUID(analysis_id)
+
+    image_key = await _claim(sessions, aid)
+    if image_key is None:
+        log.info("analysis %s is no longer queued, skipping", aid)
+        return "skipped"
+
+    await events.publish(redis, aid, Event(status=AnalysisStatus.RUNNING, stage="detecting"))
+    stop = threading.Event()
+    watcher = asyncio.create_task(_watch_cancel(redis, aid, stop))
+    started = time.perf_counter()
+    try:
+        image = await asyncio.to_thread(_load_image, settings.upload_dir, image_key)
+        elements = await asyncio.to_thread(detector.detect, image, stop.is_set)
+        result = AnalysisResult(elements=elements, findings=[], score=100.0)
+    except DetectionCanceled:
+        await _finish(sessions, redis, aid, AnalysisStatus.CANCELED)
+        return "canceled"
+    except Exception:
+        log.exception("analysis %s failed", aid)
+        await _finish(sessions, redis, aid, AnalysisStatus.FAILED, error=FAILED_MESSAGE)
+        return "failed"
+    finally:
+        watcher.cancel()
+
+    elapsed_ms = round((time.perf_counter() - started) * 1000)
+    await _finish(
+        sessions,
+        redis,
+        aid,
+        AnalysisStatus.COMPLETED,
+        result=result,
+        model_version=detector.version,
+        elapsed_ms=elapsed_ms,
+    )
+    return "completed"
+
+
+async def _claim(sessions: async_sessionmaker[AsyncSession], aid: uuid.UUID) -> str | None:
+    """Move queued -> running atomically. None if it was canceled or already taken."""
+    async with sessions() as session:
+        row = await session.execute(
+            update(Analysis)
+            .where(Analysis.id == aid, Analysis.status == AnalysisStatus.QUEUED)
+            .values(status=AnalysisStatus.RUNNING, started_at=datetime.now(UTC))
+            .returning(Analysis.image_key)
+        )
+        key = row.scalar_one_or_none()
+        await session.commit()
+        return key
+
+
+async def _finish(
+    sessions: async_sessionmaker[AsyncSession],
+    redis: Redis,
+    aid: uuid.UUID,
+    status: AnalysisStatus,
+    *,
+    result: AnalysisResult | None = None,
+    error: str | None = None,
+    model_version: str | None = None,
+    elapsed_ms: int | None = None,
+) -> None:
+    async with sessions() as session:
+        await session.execute(
+            update(Analysis)
+            .where(Analysis.id == aid, Analysis.status == AnalysisStatus.RUNNING)
+            .values(
+                status=status,
+                result=result.model_dump(mode="json") if result else None,
+                error=error,
+                model_version=model_version,
+                elapsed_ms=elapsed_ms,
+                finished_at=datetime.now(UTC),
+            )
+        )
+        await session.commit()
+
+    data = None
+    if result is not None:
+        data = {
+            "elements": len(result.elements),
+            "findings": len(result.findings),
+            "score": result.score,
+        }
+    await events.publish(redis, aid, Event(status=status, message=error, data=data))
+    await redis.delete(events.cancel_key(aid))
+
+
+async def _watch_cancel(redis: Redis, aid: uuid.UUID, stop: threading.Event) -> None:
+    # The detector runs in a thread and only checks a threading.Event, so the
+    # generation loop never waits on Redis.
+    key = events.cancel_key(aid)
+    while not stop.is_set():
+        if await redis.exists(key):
+            stop.set()
+            return
+        await asyncio.sleep(CANCEL_POLL_S)
+
+
+def _load_image(upload_dir: Path, key: str) -> Image.Image:
+    with Image.open(resolve_key(upload_dir, key)) as img:
+        return img.convert("RGB")

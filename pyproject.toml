@@ -20,8 +20,18 @@ dependencies = [
     "pillow>=10.4",
 ]
 
+[project.optional-dependencies]
+worker = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "transformers>=4.56",
+    "accelerate>=1.0",
+    "bitsandbytes>=0.44",
+]
+
 [project.scripts]
 prism-api = "prism.api.__main__:main"
+prism-worker = "prism.worker.__main__:main"
 
 [dependency-groups]
 dev = [
@@ -32,6 +42,7 @@ dev = [
     "ruff>=0.6",
     "mypy>=1.11",
     "pre-commit>=3.8",
+    "httpx-ws>=0.7",
 ]
 
 [build-system]
@@ -60,15 +71,23 @@ plugins = ["pydantic.mypy"]
 files = ["src/prism"]
 
 [[tool.mypy.overrides]]
-module = ["arq.*"]
+module = ["arq.*", "transformers.*", "torch.*", "bitsandbytes.*"]
 ignore_missing_imports = true
+
+# transformers ships without complete type hints.
+[[tool.mypy.overrides]]
+module = ["prism.vision.qwen"]
+disallow_untyped_calls = false
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
-markers = ["integration: needs Postgres and Redis (see tests/conftest.py)"]
+markers = [
+    "integration: needs Postgres and Redis (see tests/conftest.py)",
+    "model: runs the detector on a tiny random model; needs the worker extra",
+]
 addopts = "-ra --import-mode=importlib"
 
 [tool.coverage.run]

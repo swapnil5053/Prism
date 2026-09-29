@@ -1,5 +1,6 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,6 +24,12 @@ class Settings(BaseSettings):
 
     upload_dir: Path = Path("data/uploads")
     max_upload_mb: int = Field(default=10, gt=0, le=50)
+    detector_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
+    detector_quant: Literal["nf4", "int8", "none"] = "nf4"
+    # Longest image side fed to the model. Bigger finds small icons but costs VRAM and time.
+    detector_max_side: int = Field(default=1280, ge=448, le=2048)
+    job_timeout_s: int = Field(default=300, gt=0)
+
     # Pillow's own bomb guard trips at ~89M pixels; screenshots never need that many.
     max_image_pixels: int = Field(default=40_000_000, gt=0)
 

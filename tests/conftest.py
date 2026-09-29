@@ -1,6 +1,7 @@
 import os
 from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from alembic import command
@@ -72,3 +73,15 @@ async def redis() -> AsyncIterator[Redis]:
     r: Redis = Redis.from_url(TEST_REDIS)
     yield r
     await r.aclose()
+
+
+@pytest.fixture
+def worker_ctx(app: FastAPI, settings: Settings) -> dict[str, Any]:
+    from tests.fakes import FakeDetector
+
+    return {
+        "settings": settings,
+        "sessionmaker": app.state.sessionmaker,
+        "redis": app.state.queue,
+        "detector": FakeDetector(),
+    }

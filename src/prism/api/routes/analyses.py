@@ -7,9 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, HTTPException, Query, Request, Response, UploadFile, status
 from fastapi.responses import FileResponse
 from redis.exceptions import RedisError
-from sqlalchemy import select
+from sqlalchemy import select, update
 
+from prism import events
 from prism.db.models import Analysis, AnalysisStatus
+from prism.events import Event
 from prism.schemas import AnalysisOut, AnalysisPage, AnalysisSummary
 
 from ..deps import SessionDep, SettingsDep
@@ -130,3 +132,34 @@ async def get_image(
         media_type=_MEDIA_TYPES[path.suffix.lstrip(".")],
         headers={"Cache-Control": "private, max-age=86400"},
     )
+
+
+@router.post("/{analysis_id}/cancel", status_code=status.HTTP_202_ACCEPTED)
+async def cancel_analysis(
+    analysis_id: uuid.UUID,
+    request: Request,
+    session: SessionDep,
+    settings: SettingsDep,
+    workspace_id: CurrentWorkspace,
+) -> AnalysisOut:
+    analysis = await _owned(session, analysis_id, workspace_id)
+    if analysis.status.is_terminal:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"Analysis is already {analysis.status}")
+
+    redis = request.app.state.queue
+    # Still in the queue: cancel it here. The worker skips anything not queued.
+    canceled = await session.scalar(
+        update(Analysis)
+        .where(Analysis.id == analysis_id, Analysis.status == AnalysisStatus.QUEUED)
+        .values(status=AnalysisStatus.CANCELED, finished_at=datetime.now(UTC))
+        .returning(Analysis.id)
+    )
+    await session.commit()
+    if canceled is not None:
+        await events.publish(redis, analysis_id, Event(status=AnalysisStatus.CANCELED))
+    else:
+        # Already running: flag it and let the worker stop generation.
+        await redis.set(events.cancel_key(analysis_id), "1", ex=settings.job_timeout_s + 60)
+
+    await session.refresh(analysis)
+    return AnalysisOut.model_validate(analysis)
