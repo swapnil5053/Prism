@@ -257,7 +257,7 @@ def generate(out: Path, count: int, seed: int, chromium: str | None = None) -> N
 
     out.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
-    with sync_playwright() as pw, (out / "labels.jsonl").open("w") as labels:
+    with sync_playwright() as pw, (out / "labels.jsonl").open("w", encoding="utf-8") as labels:
         browser = pw.chromium.launch(executable_path=chromium)
         contexts: dict[tuple[int, float], Any] = {}
         for i in range(count):
