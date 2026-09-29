@@ -23,6 +23,8 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     upload_dir: Path = Path("data/uploads")
+    # Built frontend (web/dist). When set, the API serves it at /.
+    web_dir: Path | None = None
     max_upload_mb: int = Field(default=10, gt=0, le=50)
     detector_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     detector_quant: Literal["nf4", "int8", "none"] = "nf4"
