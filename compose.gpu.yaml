@@ -1,0 +1,25 @@
+services:
+  worker:
+    build: { context: ., dockerfile: docker/worker.Dockerfile }
+    environment:
+      PRISM_DATABASE_URL: postgresql+asyncpg://prism:${POSTGRES_PASSWORD}@postgres:5432/prism
+      PRISM_REDIS_URL: redis://redis:6379/0
+      PRISM_SECRET_KEY: ${PRISM_SECRET_KEY}
+      PRISM_DETECTOR_MODEL: ${PRISM_DETECTOR_MODEL:-Qwen/Qwen2.5-VL-3B-Instruct}
+      PRISM_DETECTOR_QUANT: ${PRISM_DETECTOR_QUANT:-nf4}
+    volumes:
+      - uploads:/data/uploads
+      - models:/models
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  models:
