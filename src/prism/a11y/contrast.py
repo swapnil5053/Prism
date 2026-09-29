@@ -19,9 +19,10 @@ NORMAL_TEXT = 4.5
 LARGE_TEXT = 3.0
 LARGE_TEXT_PX = 24  # 18pt. We can't see font weight, so the 14pt-bold case is ignored.
 
-_MIN_TEXT_SHARE = 0.02  # fewer "text" pixels than this: nothing to measure
+_MIN_TEXT_SHARE = 0.005  # fewer "text" pixels than this: nothing to measure
 _MAX_SAMPLE_SIDE = 96
 _ITERATIONS = 8
+_INSET = 0.06
 
 
 @dataclass(frozen=True)
@@ -47,14 +48,17 @@ def contrast_ratio(a: tuple[int, int, int], b: tuple[int, int, int]) -> float:
 
 
 def estimate(image: Image.Image, box: Box) -> ContrastEstimate | None:
-    crop = image.crop(box.to_pixels(image.width, image.height)).convert("RGB")
+    x1, y1, x2, y2 = box.to_pixels(image.width, image.height)
+    # Trim the edges: rounded corners and borders there aren't text or background.
+    dx, dy = max(1, round((x2 - x1) * _INSET)), max(1, round((y2 - y1) * _INSET))
+    crop = image.crop((x1 + dx, y1 + dy, x2 - dx, y2 - dy)).convert("RGB")
     if crop.width < 2 or crop.height < 2:
         return None
     crop.thumbnail((_MAX_SAMPLE_SIDE * 4, _MAX_SAMPLE_SIDE), Image.Resampling.NEAREST)
     pixels = np.asarray(crop, dtype=np.float64).reshape(-1, 3)
     lum = relative_luminance(pixels)
 
-    labels = _two_means(pixels, lum)
+    labels = _two_means(pixels)
     big = 0 if (labels == 0).sum() >= (labels == 1).sum() else 1
     background = pixels[labels == big]
     text = pixels[labels != big]
@@ -108,8 +112,16 @@ def check(image: Image.Image, elements: list[Element], dpr: float) -> list[Findi
     return findings
 
 
-def _two_means(pixels: NDArray[np.float64], lum: NDArray[np.float64]) -> NDArray[np.int_]:
-    centres = np.stack([pixels[lum.argmin()], pixels[lum.argmax()]])
+def _two_means(pixels: NDArray[np.float64]) -> NDArray[np.int_]:
+    # Seed with the most common colour (almost always the background) and the
+    # pixel furthest from it. Seeding with the darkest and lightest pixels
+    # instead latched onto stray corner pixels on small buttons.
+    _, inverse, counts = np.unique(
+        (pixels // 8).astype(np.int_), axis=0, return_inverse=True, return_counts=True
+    )
+    common = pixels[inverse.ravel() == counts.argmax()].mean(axis=0)
+    far = pixels[((pixels - common) ** 2).sum(axis=1).argmax()]
+    centres = np.stack([common, far])
     labels = np.zeros(len(pixels), dtype=np.int_)
     for i in range(_ITERATIONS):
         dist = ((pixels[:, None, :] - centres[None, :, :]) ** 2).sum(axis=2)
