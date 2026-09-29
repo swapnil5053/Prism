@@ -29,10 +29,14 @@ worker = [
     "accelerate>=1.0",
     "bitsandbytes>=0.44",
 ]
+eval = [
+    "playwright>=1.45",
+]
 
 [project.scripts]
 prism-api = "prism.api.__main__:main"
 prism-worker = "prism.worker.__main__:main"
+prism-eval = "prism.evaluation.run:main"
 
 [dependency-groups]
 dev = [
@@ -62,8 +66,9 @@ select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
 ignore = ["S101"]  # asserts are fine in tests
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S105", "S106"]
+"tests/**" = ["S105", "S106", "S311"]
 "migrations/**" = ["E501"]
+"src/prism/evaluation/**" = ["S311"]  # seeded randomness for data generation
 
 [tool.mypy]
 python_version = "3.11"

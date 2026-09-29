@@ -18,7 +18,7 @@ web/dist/
 *.rdb
 data/
 uploads/
-eval/cache/
+eval/data/
 
 # Model weights
 *.safetensors
