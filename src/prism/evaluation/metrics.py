@@ -41,17 +41,21 @@ class DetectionScore:
 
 
 def match(
-    predicted: list[Element], truth: list[Element], iou_threshold: float = 0.5
+    predicted: list[Element],
+    truth: list[Element],
+    iou_threshold: float = 0.5,
+    same_kind: bool = True,
 ) -> tuple[DetectionScore, list[tuple[int, int]]]:
-    """Greedy one-to-one matching of same-kind boxes, highest IoU first.
+    """Greedy one-to-one matching of boxes, highest IoU first.
 
-    Returns the scores and the (predicted id, truth id) pairs that matched.
+    With same_kind=False the label is ignored, which measures localisation on
+    its own. Returns the scores and the (predicted id, truth id) pairs.
     """
     candidates = [
         (p.box.iou(t.box), pi, ti)
         for pi, p in enumerate(predicted)
         for ti, t in enumerate(truth)
-        if p.kind == t.kind
+        if p.kind == t.kind or not same_kind
     ]
     candidates.sort(reverse=True)
     used_p: set[int] = set()
@@ -67,6 +71,11 @@ def match(
         pairs.append((predicted[pi].id, truth[ti].id))
 
     score = DetectionScore()
+    if not same_kind:
+        score.overall = Counts(
+            tp=len(pairs), fp=len(predicted) - len(pairs), fn=len(truth) - len(pairs)
+        )
+        return score, pairs
     for pi, p in enumerate(predicted):
         c = score.by_kind[p.kind]
         if pi in used_p:
