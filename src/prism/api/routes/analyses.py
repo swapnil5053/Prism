@@ -2,16 +2,19 @@ import asyncio
 import logging
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request, Response, UploadFile, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi.responses import FileResponse, HTMLResponse
+from PIL import Image
 from redis.exceptions import RedisError
 from sqlalchemy import select, update
 
 from prism import events
 from prism.db.models import Analysis, AnalysisStatus
+from prism.domain import AnalysisResult
 from prism.events import Event
+from prism.report import render_html
 from prism.schemas import AnalysisOut, AnalysisPage, AnalysisSummary
 
 from ..deps import SessionDep, SettingsDep
@@ -22,6 +25,7 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/analyses", tags=["analyses"])
 
 ANALYZE_TASK = "analyze"
+REPORT_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'"
 _MEDIA_TYPES = {"png": "image/png", "jpg": "image/jpeg", "webp": "image/webp"}
 
 
@@ -41,6 +45,7 @@ async def create_analysis(
     session: SessionDep,
     settings: SettingsDep,
     workspace_id: EnsuredWorkspace,
+    device_pixel_ratio: Annotated[float, Form(ge=1, le=4)] = 1.0,
 ) -> AnalysisOut:
     try:
         data = await read_limited(file, settings.max_upload_bytes)
@@ -56,6 +61,7 @@ async def create_analysis(
         image_width=stored.width,
         image_height=stored.height,
         original_filename=display_name(file.filename),
+        device_pixel_ratio=device_pixel_ratio,
         status=AnalysisStatus.QUEUED,
     )
     session.add(analysis)
@@ -131,6 +137,47 @@ async def get_image(
         path,
         media_type=_MEDIA_TYPES[path.suffix.lstrip(".")],
         headers={"Cache-Control": "private, max-age=86400"},
+    )
+
+
+@router.get("/{analysis_id}/report")
+async def get_report(
+    analysis_id: uuid.UUID,
+    session: SessionDep,
+    settings: SettingsDep,
+    workspace_id: CurrentWorkspace,
+    format: Literal["html", "json"] = "html",
+) -> Response:
+    analysis = await _owned(session, analysis_id, workspace_id)
+    if analysis.status != AnalysisStatus.COMPLETED or analysis.result is None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "Analysis has not completed")
+    result = AnalysisResult.model_validate(analysis.result)
+    stem = f"prism-{analysis.id.hex[:8]}"
+
+    if format == "json":
+        return Response(
+            AnalysisOut.model_validate(analysis).model_dump_json(indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{stem}.json"'},
+        )
+
+    def build() -> str:
+        with Image.open(resolve_key(settings.upload_dir, analysis.image_key)) as img:
+            return render_html(
+                analysis.original_filename or "Screenshot",
+                analysis.created_at.strftime("%Y-%m-%d %H:%M UTC"),
+                result,
+                img,
+                analysis.model_version,
+            )
+
+    return HTMLResponse(
+        await asyncio.to_thread(build),
+        headers={
+            "Content-Disposition": f'attachment; filename="{stem}.html"',
+            # The report is a static document; nothing in it should run.
+            "Content-Security-Policy": REPORT_CSP,
+        },
     )
 
 

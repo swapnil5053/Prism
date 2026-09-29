@@ -61,7 +61,9 @@ async def analysis_events(ws: WebSocket, analysis_id: uuid.UUID, after: str = "0
             batch = await events.read(redis, analysis_id, cursor, READ_BLOCK_MS)
             for event_id, event in batch:
                 cursor = event_id
-                await ws.send_json({"id": event_id, **event.model_dump(mode="json")})
+                await ws.send_json(
+                    {"id": event_id, **event.model_dump(mode="json", exclude_none=True)}
+                )
                 if event.status.is_terminal:
                     return
             if not batch:

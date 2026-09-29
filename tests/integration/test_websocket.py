@@ -46,7 +46,7 @@ async def test_streams_until_done(
     await asyncio.sleep(0.1)  # connect before the job starts
     await analyze(worker_ctx, aid)
     got = await asyncio.wait_for(listener, 10)
-    assert [e["status"] for e in got] == ["running", "completed"]
+    assert [e.get("stage", e["status"]) for e in got] == ["detecting", "auditing", "completed"]
     assert got[-1]["data"]["elements"] == 1
 
 
@@ -58,10 +58,10 @@ async def test_late_client_replays_missed_events(
     cookie = client.cookies[COOKIE_NAME]
 
     got = await collect(app, cookie, aid)
-    assert [e["status"] for e in got] == ["running", "completed"]
+    assert len(got) == 3
 
     resumed = await collect(app, cookie, aid, after=got[0]["id"])
-    assert [e["status"] for e in resumed] == ["completed"]
+    assert [e["id"] for e in resumed] == [e["id"] for e in got[1:]]
 
 
 async def test_snapshot_when_stream_expired(

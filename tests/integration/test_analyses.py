@@ -150,3 +150,18 @@ async def test_queue_down_marks_failed(
     detail = (await client.get(f"/api/v1/analyses/{items[0]['id']}")).json()
     assert detail["status"] == "failed"
     assert detail["error"]
+
+
+async def test_device_pixel_ratio(client: AsyncClient) -> None:
+    r = await client.post(
+        "/api/v1/analyses",
+        files={"file": ("s.png", png(), "image/png")},
+        data={"device_pixel_ratio": "2"},
+    )
+    assert r.json()["device_pixel_ratio"] == 2
+    bad = await client.post(
+        "/api/v1/analyses",
+        files={"file": ("s.png", png(), "image/png")},
+        data={"device_pixel_ratio": "9"},
+    )
+    assert bad.status_code == 422
