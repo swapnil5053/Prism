@@ -1,0 +1,36 @@
+{
+  "contrast": {
+    "elements": 3033,
+    "median_rel_error": 0.041,
+    "p90_rel_error": 0.103,
+    "agreement_at_4.5": 0.908,
+    "agreement_outside_10pct_band": 0.995
+  },
+  "rules": {
+    "target-size": {
+      "tp": 1794,
+      "fp": 0,
+      "fn": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "text-contrast": {
+      "tp": 1701,
+      "fp": 255,
+      "fn": 127,
+      "precision": 0.87,
+      "recall": 0.931,
+      "f1": 0.899
+    },
+    "visible-label": {
+      "tp": 104,
+      "fp": 0,
+      "fn": 35,
+      "precision": 1.0,
+      "recall": 0.748,
+      "f1": 0.856
+    }
+  },
+  "dataset": "eval/data/synth-test"
+}
