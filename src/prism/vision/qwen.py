@@ -81,9 +81,14 @@ class QwenDetector:
                 bnb_4bit_quant_type="nf4",
                 bnb_4bit_use_double_quant=True,
                 bnb_4bit_compute_dtype=dtype,
+                # Keep the vision encoder in bf16: it's small, and box accuracy
+                # depends on it more than on the language model's weights.
+                llm_int8_skip_modules=["visual", "lm_head"],
             )
         elif quant == "int8":
-            quant_config = BitsAndBytesConfig(load_in_8bit=True)
+            quant_config = BitsAndBytesConfig(
+                load_in_8bit=True, llm_int8_skip_modules=["visual", "lm_head"]
+            )
         if quant_config is not None and not cuda:
             raise RuntimeError(f"{quant} quantisation needs a CUDA GPU; use quant='none' on CPU")
 
