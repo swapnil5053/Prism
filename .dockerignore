@@ -1,0 +1,9 @@
+.git
+.venv
+**/__pycache__
+**/node_modules
+web/dist
+eval/data
+data
+.env
+*.rdb
