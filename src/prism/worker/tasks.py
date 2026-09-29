@@ -13,6 +13,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from prism import events
+from prism.a11y import audit
 from prism.api.uploads import resolve_key
 from prism.config import Settings
 from prism.db.models import Analysis, AnalysisStatus
@@ -33,8 +34,8 @@ async def analyze(ctx: dict[str, Any], analysis_id: str) -> str:
     detector: Detector = ctx["detector"]
     aid = uuid.UUID(analysis_id)
 
-    image_key = await _claim(sessions, aid)
-    if image_key is None:
+    claimed = await _claim(sessions, aid)
+    if claimed is None:
         log.info("analysis %s is no longer queued, skipping", aid)
         return "skipped"
 
@@ -43,9 +44,11 @@ async def analyze(ctx: dict[str, Any], analysis_id: str) -> str:
     watcher = asyncio.create_task(_watch_cancel(redis, aid, stop))
     started = time.perf_counter()
     try:
+        image_key, dpr = claimed
         image = await asyncio.to_thread(_load_image, settings.upload_dir, image_key)
         elements = await asyncio.to_thread(detector.detect, image, stop.is_set)
-        result = AnalysisResult(elements=elements, findings=[], score=100.0)
+        await events.publish(redis, aid, Event(status=AnalysisStatus.RUNNING, stage="auditing"))
+        result = await asyncio.to_thread(audit, image, elements, dpr)
     except DetectionCanceled:
         await _finish(sessions, redis, aid, AnalysisStatus.CANCELED)
         return "canceled"
@@ -69,18 +72,20 @@ async def analyze(ctx: dict[str, Any], analysis_id: str) -> str:
     return "completed"
 
 
-async def _claim(sessions: async_sessionmaker[AsyncSession], aid: uuid.UUID) -> str | None:
+async def _claim(
+    sessions: async_sessionmaker[AsyncSession], aid: uuid.UUID
+) -> tuple[str, float] | None:
     """Move queued -> running atomically. None if it was canceled or already taken."""
     async with sessions() as session:
         row = await session.execute(
             update(Analysis)
             .where(Analysis.id == aid, Analysis.status == AnalysisStatus.QUEUED)
             .values(status=AnalysisStatus.RUNNING, started_at=datetime.now(UTC))
-            .returning(Analysis.image_key)
+            .returning(Analysis.image_key, Analysis.device_pixel_ratio)
         )
-        key = row.scalar_one_or_none()
+        claimed = row.one_or_none()
         await session.commit()
-        return key
+        return (claimed[0], claimed[1]) if claimed else None
 
 
 async def _finish(

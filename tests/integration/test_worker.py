@@ -13,7 +13,8 @@ pytestmark = pytest.mark.integration
 
 
 async def stages(ctx: dict[str, Any], aid: str) -> list[str]:
-    return [e.status for _, e in await events.read(ctx["redis"], aid, "0", block_ms=10)]
+    got = await events.read(ctx["redis"], aid, "0", block_ms=10)
+    return [e.stage or e.status for _, e in got]
 
 
 async def test_completes_and_stores_result(client: AsyncClient, worker_ctx: dict[str, Any]) -> None:
@@ -25,7 +26,7 @@ async def test_completes_and_stores_result(client: AsyncClient, worker_ctx: dict
     assert body["model_version"] == "fake-detector"
     assert body["elapsed_ms"] >= 0
     assert body["result"]["elements"][0]["kind"] == "button"
-    assert await stages(worker_ctx, aid) == ["running", "completed"]
+    assert await stages(worker_ctx, aid) == ["detecting", "auditing", "completed"]
 
 
 async def test_detector_error_is_not_leaked(

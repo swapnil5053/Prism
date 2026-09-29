@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, Text, func
+from sqlalchemy import DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -67,6 +67,8 @@ class Analysis(Base):
     image_width: Mapped[int] = mapped_column(Integer)
     image_height: Mapped[int] = mapped_column(Integer)
     original_filename: Mapped[str | None] = mapped_column(String(255))
+    # Screenshot pixels per CSS pixel (2 for most phone and retina screenshots).
+    device_pixel_ratio: Mapped[float] = mapped_column(Float, default=1.0, server_default="1.0")
 
     model_version: Mapped[str | None] = mapped_column(String(128))
     elapsed_ms: Mapped[int | None] = mapped_column(Integer)

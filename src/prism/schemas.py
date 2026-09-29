@@ -17,6 +17,7 @@ class AnalysisSummary(BaseModel):
     original_filename: str | None
     image_width: int
     image_height: int
+    device_pixel_ratio: float
     created_at: datetime
 
     @computed_field  # type: ignore[prop-decorator]
