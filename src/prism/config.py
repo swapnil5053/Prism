@@ -1,0 +1,43 @@
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic import Field, SecretStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    """All runtime configuration, read from PRISM_* environment variables or .env."""
+
+    model_config = SettingsConfigDict(env_prefix="PRISM_", env_file=".env", extra="ignore")
+
+    database_url: str
+    redis_url: str = "redis://localhost:6379/0"
+    secret_key: SecretStr
+
+    host: str = "127.0.0.1"
+    port: int = 8000
+    cors_origins: list[str] = Field(default_factory=list)
+    cookie_secure: bool = True
+    sql_echo: bool = False
+    log_level: str = "INFO"
+
+    upload_dir: Path = Path("data/uploads")
+    max_upload_mb: int = Field(default=10, gt=0, le=50)
+    # Pillow's own bomb guard trips at ~89M pixels; screenshots never need that many.
+    max_image_pixels: int = Field(default=40_000_000, gt=0)
+
+    @field_validator("secret_key")
+    @classmethod
+    def _secret_long_enough(cls, value: SecretStr) -> SecretStr:
+        if len(value.get_secret_value()) < 32:
+            raise ValueError("PRISM_SECRET_KEY must be at least 32 characters")
+        return value
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.max_upload_mb * 1024 * 1024
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()  # values come from the environment
