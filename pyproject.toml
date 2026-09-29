@@ -101,3 +101,5 @@ source = ["src/prism"]
 branch = true
 # SQLAlchemy's asyncio layer runs on greenlets; without this, lines after awaits look unrun.
 concurrency = ["greenlet", "thread"]
+# Entry points, and the model backend (covered by the separate `model` CI job).
+omit = ["*/__main__.py", "src/prism/vision/qwen.py", "src/prism/worker/settings.py"]
