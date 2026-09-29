@@ -8,6 +8,7 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from prism import __version__
 from prism.config import Settings, get_settings
@@ -16,6 +17,16 @@ from prism.db.session import make_engine, make_sessionmaker
 from .routes import analyses, events, health
 
 log = logging.getLogger(__name__)
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "same-origin",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": (
+        "default-src 'self'; img-src 'self' data: blob:; connect-src 'self'; "
+        "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+    ),
+}
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -56,6 +67,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request.state.request_id = rid
         response = await call_next(request)
         response.headers["x-request-id"] = rid
+        for name, value in SECURITY_HEADERS.items():
+            # Routes can set stricter values (the report does).
+            response.headers.setdefault(name, value)
+        if request.url.path in ("/docs", "/redoc"):
+            del response.headers["Content-Security-Policy"]  # Swagger UI loads from a CDN
         return response
 
     @app.exception_handler(Exception)
@@ -72,4 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(analyses.router)
     app.include_router(events.router)
+
+    if settings.web_dir is not None:
+        # Mounted last so it never shadows an API route.
+        app.mount("/", StaticFiles(directory=settings.web_dir, html=True), name="web")
     return app

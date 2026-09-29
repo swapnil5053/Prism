@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Prism</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Prism</h1>
+      <p>Upload a screenshot of a UI to find likely accessibility problems.</p>
+    </header>
+
+    <main>
+      <form id="upload">
+        <label>
+          Screenshot (PNG, JPEG or WebP, up to 10 MB)
+          <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required />
+        </label>
+        <label>
+          Pixel ratio
+          <select name="dpr">
+            <option value="1">1x (desktop)</option>
+            <option value="2">2x (phone, Retina)</option>
+            <option value="3">3x</option>
+          </select>
+        </label>
+        <button type="submit">Analyze</button>
+      </form>
+
+      <section id="current" hidden>
+        <div class="status-row">
+          <p id="status" role="status" aria-live="polite"></p>
+          <button id="cancel" type="button" hidden>Cancel</button>
+          <span id="downloads" hidden>
+            <a id="report-html" download>HTML report</a> ·
+            <a id="report-json" download>JSON</a>
+          </span>
+        </div>
+        <div class="result">
+          <div class="shot">
+            <img id="shot" alt="" />
+            <div id="boxes"></div>
+          </div>
+          <div class="findings">
+            <h2 id="summary"></h2>
+            <ol id="findings"></ol>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Recent</h2>
+        <ul id="history"></ul>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Checks are estimated from pixels (contrast, target size, visible labels). They catch common
+        problems but don't replace testing with assistive technology.
+      </p>
+    </footer>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

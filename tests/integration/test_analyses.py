@@ -165,3 +165,14 @@ async def test_device_pixel_ratio(client: AsyncClient) -> None:
         data={"device_pixel_ratio": "9"},
     )
     assert bad.status_code == 422
+
+
+async def test_upload_rate_limit(app: FastAPI, client: AsyncClient) -> None:
+    app.state.settings = app.state.settings.model_copy(update={"uploads_per_hour": 2})
+    assert (await upload(client)).status_code == 201
+    assert (await upload(client)).status_code == 201
+    r = await upload(client)
+    assert r.status_code == 429
+    assert int(r.headers["retry-after"]) > 0
+    # Reads aren't limited.
+    assert (await client.get("/api/v1/analyses")).status_code == 200
