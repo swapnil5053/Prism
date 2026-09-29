@@ -56,7 +56,7 @@ def render_html(
     rows = []
     for f in sorted(result.findings, key=lambda f: (-_RANK[f.severity], f.element_id)):
         el = by_id.get(f.element_id)
-        what = f"{el.kind.value}" + (f" “{el.text}”" if el and el.text else "") if el else "?"
+        what = "?" if el is None else el.kind.value + (f' "{el.text}"' if el.text else "")
         rows.append(
             "<tr>"
             f"<td>{f.element_id}</td>"
