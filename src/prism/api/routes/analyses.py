@@ -4,7 +4,17 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Form, HTTPException, Query, Request, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, HTMLResponse
 from PIL import Image
 from redis.exceptions import RedisError
@@ -18,6 +28,7 @@ from prism.report import render_html
 from prism.schemas import AnalysisOut, AnalysisPage, AnalysisSummary
 
 from ..deps import SessionDep, SettingsDep
+from ..ratelimit import limit_uploads
 from ..uploads import UploadRejected, display_name, read_limited, resolve_key, store_image
 from ..workspace import CurrentWorkspace, EnsuredWorkspace
 
@@ -37,7 +48,7 @@ async def _owned(session: SessionDep, analysis_id: uuid.UUID, ws: uuid.UUID | No
     return analysis
 
 
-@router.post("", status_code=status.HTTP_201_CREATED)
+@router.post("", status_code=status.HTTP_201_CREATED, dependencies=[Depends(limit_uploads)])
 async def create_analysis(
     request: Request,
     response: Response,

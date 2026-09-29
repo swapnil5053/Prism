@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     upload_dir: Path = Path("data/uploads")
     # Built frontend (web/dist). When set, the API serves it at /.
     web_dir: Path | None = None
+    uploads_per_hour: int = Field(default=30, ge=0)  # per client IP; 0 disables
     max_upload_mb: int = Field(default=10, gt=0, le=50)
     detector_model: str = "Qwen/Qwen2.5-VL-3B-Instruct"
     detector_quant: Literal["nf4", "int8", "none"] = "nf4"
