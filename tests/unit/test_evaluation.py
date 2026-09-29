@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from prism.evaluation.dataset import load
-from prism.evaluation.run import oracle, true_findings
+from prism.evaluation.run import oracle, rescore, true_findings
 from prism.evaluation.synth import build_page
 
 
@@ -77,3 +77,35 @@ def test_synthetic_pages_are_reproducible() -> None:
     assert a == b
     assert a != c
     assert 'data-kind="button"' in a[0] or 'data-kind="link"' in a[0]
+
+
+def test_rescore_scores_boxes_and_labels_separately(tmp_path: Path) -> None:
+    write_page(tmp_path)
+    # The model finds the low-contrast text but calls it a link, and finds the icon.
+    raw = json.dumps(
+        [
+            {"bbox_2d": [16, 16, 140, 42], "label": "link"},
+            {"bbox_2d": [20, 120, 31, 131], "label": "icon"},
+        ]
+    )
+    log = tmp_path / "run.pages.jsonl"
+    log.write_text(
+        json.dumps(
+            {
+                "image": "p.png",
+                "seconds": 2.0,
+                "new_tokens": 40,
+                "input_size": [400, 200],
+                "raw": raw,
+            }
+        )
+        + "\n"
+    )
+    summary = rescore(tmp_path, log, frame="pixels")
+    det = summary["detection"]
+    assert det["boxes_any_label"]["tp"] == 2
+    assert det["boxes_and_labels"]["tp"] == 1
+    assert summary["confusion_truth_to_predicted"]["text"]["link"] == 1
+    # The contrast finding lands on the right element despite the wrong label.
+    assert summary["rules_end_to_end"]["text-contrast"]["tp"] == 1
+    assert summary["tokens_per_second"] == 20.0

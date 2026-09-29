@@ -3,6 +3,7 @@
     prism-eval synth  --out eval/data/synth --count 300
     prism-eval oracle --data eval/data/synth           # audit rules on true boxes (CPU)
     prism-eval detect --data eval/data/synth --quant nf4 --max-side 1280   # needs a GPU
+    prism-eval rescore --data eval/data/synth --pages eval/results/<run>.pages.jsonl
 
 Every command prints a Markdown table and writes a JSON summary to --results.
 """
@@ -11,7 +12,7 @@ import argparse
 import json
 import statistics
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from prism.a11y import audit
 from prism.a11y.contrast import LARGE_TEXT, NORMAL_TEXT, contrast_ratio, estimate
 from prism.a11y.target_size import MIN_CSS_PX
 from prism.domain import Element, ElementKind, Finding
+from prism.vision.parse import parse_elements
 
 from .dataset import Page, load
 from .metrics import Counts, DetectionScore, match, percentile
@@ -109,6 +111,60 @@ def oracle(data: Path, limit: int | None) -> dict[str, Any]:
     }
 
 
+class PipelineScore:
+    """Accumulates detection and end-to-end rule scores over pages."""
+
+    def __init__(self) -> None:
+        self.strict = DetectionScore()  # box and label must both match
+        self.boxes = Counts()  # box only, label ignored
+        self.ious: list[float] = []
+        self.confusion: Counter[tuple[str, str]] = Counter()
+        self.rules: dict[str, Counts] = defaultdict(Counts)
+
+    def add(self, page: Page, image: Image.Image, predicted: list[Element]) -> DetectionScore:
+        truth = [t.element for t in page.elements]
+        strict, _ = match(predicted, truth)
+        self.strict.add(strict)
+
+        # Rules are scored on location: a contrast finding on the right text is
+        # right even if the model called that text a link.
+        loose, pairs = match(predicted, truth, same_kind=False)
+        self.boxes.add(loose.overall)
+        by_pred = {e.id: e for e in predicted}
+        matched_truth = set()
+        for pid, tid in pairs:
+            self.ious.append(by_pred[pid].box.iou(truth[tid].box))
+            self.confusion[(truth[tid].kind.value, by_pred[pid].kind.value)] += 1
+            matched_truth.add(tid)
+        for t in truth:
+            if t.id not in matched_truth:
+                self.confusion[(t.kind.value, "missed")] += 1
+
+        result = audit(image, predicted, page.dpr)
+        for rule, c in _finding_counts(result.findings, true_findings(page), dict(pairs)).items():
+            self.rules[rule].add(c)
+        return strict
+
+    def summary(self) -> dict[str, Any]:
+        kinds = [k.value for k in ElementKind]
+        return {
+            "detection": {
+                "boxes_any_label": {
+                    **_counts(self.boxes),
+                    "mean_iou": round(statistics.mean(self.ious), 3) if self.ious else None,
+                },
+                "boxes_and_labels": _counts(self.strict.overall),
+                **{k.value: _counts(c) for k, c in sorted(self.strict.by_kind.items())},
+            },
+            "confusion_truth_to_predicted": {
+                t: {p: self.confusion[(t, p)] for p in [*kinds, "missed"]}
+                for t in kinds
+                if any(self.confusion[(t, p)] for p in [*kinds, "missed"])
+            },
+            "rules_end_to_end": {r: _counts(c) for r, c in sorted(self.rules.items())},
+        }
+
+
 def detect(
     data: Path,
     limit: int | None,
@@ -117,6 +173,7 @@ def detect(
     max_side: int,
     pages_log: Path | None = None,
     max_new_tokens: int = 2048,
+    prompt: str = "v2",
 ) -> dict[str, Any]:
     import torch
 
@@ -127,12 +184,12 @@ def detect(
         quant=quant,  # type: ignore[arg-type]
         max_side=max_side,
         max_new_tokens=max_new_tokens,
+        prompt=prompt,
     )
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
 
-    det = DetectionScore()
-    rules: dict[str, Counts] = defaultdict(Counts)
+    score = PipelineScore()
     latencies: list[float] = []
     valid = truncated = hit_limit = pages = errors = 0
     total = sum(1 for _ in load(data, limit))
@@ -150,25 +207,18 @@ def detect(
                 torch.cuda.empty_cache()
                 print(f"[{pages + errors}/{total}] {page.image.name}: out of memory, skipped")
                 continue
-            result = audit(image, run.parsed.elements, page.dpr)
             seconds = time.perf_counter() - started
             latencies.append(seconds)
             pages += 1
             valid += run.parsed.valid_json
             truncated += run.parsed.truncated
             hit_limit += run.new_tokens >= max_new_tokens
-
-            truth: list[Element] = [t.element for t in page.elements]
-            score, pairs = match(run.parsed.elements, truth)
-            det.add(score)
-            per_rule = _finding_counts(result.findings, true_findings(page), dict(pairs))
-            for rule, c in per_rule.items():
-                rules[rule].add(c)
+            strict = score.add(page, image, run.parsed.elements)
 
             print(
                 f"[{pages + errors}/{total}] {page.image.name}: {seconds:.1f}s, "
-                f"{run.new_tokens} tokens, {len(run.parsed.elements)}/{len(truth)} elements, "
-                f"running F1 {det.overall.f1:.3f}",
+                f"{run.new_tokens} tokens, {len(run.parsed.elements)}/{len(page.elements)} "
+                f"elements, box F1 so far {score.boxes.f1:.3f}",
                 flush=True,
             )
             if log is not None:
@@ -180,9 +230,9 @@ def detect(
                     "valid_json": run.parsed.valid_json,
                     "truncated": run.parsed.truncated,
                     "dropped": run.parsed.dropped,
-                    "matched": score.overall.tp,
+                    "matched": strict.overall.tp,
                     "predicted": len(run.parsed.elements),
-                    "truth": len(truth),
+                    "truth": len(page.elements),
                     "raw": run.raw_text,
                 }
                 log.write(json.dumps(record) + "\n")
@@ -204,11 +254,39 @@ def detect(
             "p95": round(percentile(latencies, 0.95), 2),
         },
         "peak_vram_gb": round(peak_gb, 2) if peak_gb is not None else None,
-        "detection": {
-            "overall": _counts(det.overall),
-            **{k.value: _counts(c) for k, c in sorted(det.by_kind.items())},
+        **score.summary(),
+    }
+
+
+def rescore(data: Path, pages_log: Path, frame: str) -> dict[str, Any]:
+    """Re-parse and re-score a saved detect run with the current code. No GPU."""
+    pages = {p.image.name: p for p in load(data)}
+    score = PipelineScore()
+    latencies: list[float] = []
+    tokens: list[float] = []
+    valid = n = 0
+    with pages_log.open(encoding="utf-8") as fh:
+        for line in fh:
+            rec = json.loads(line)
+            page = pages[rec["image"]]
+            w, h = (1000, 1000) if frame == "1000" else rec["input_size"]
+            parsed = parse_elements(rec["raw"], w, h)
+            with Image.open(page.image) as img:
+                score.add(page, img.convert("RGB"), parsed.elements)
+            latencies.append(rec["seconds"])
+            tokens.append(rec["new_tokens"])
+            valid += parsed.valid_json
+            n += 1
+    return {
+        "source": str(pages_log),
+        "pages": n,
+        "valid_json_rate": round(valid / n, 3) if n else None,
+        "latency_s": {
+            "p50": round(percentile(latencies, 0.5), 2),
+            "p95": round(percentile(latencies, 0.95), 2),
         },
-        "rules_end_to_end": {r: _counts(c) for r, c in sorted(rules.items())},
+        "tokens_per_second": round(sum(tokens) / sum(latencies), 1) if latencies else None,
+        **score.summary(),
     }
 
 
@@ -257,6 +335,12 @@ def main() -> None:
     s.add_argument("--seed", type=int, default=13)
     s.add_argument("--chromium", help="path to a Chromium binary, if Playwright's isn't installed")
 
+    r = sub.add_parser("rescore", help="re-score a saved detect run without the model")
+    r.add_argument("--data", type=Path, required=True)
+    r.add_argument("--pages", type=Path, required=True, help="a <results>.pages.jsonl file")
+    r.add_argument("--frame", choices=["pixels", "1000"], default="pixels")
+    r.add_argument("--results", type=Path)
+
     for name in ("oracle", "detect"):
         p = sub.add_parser(name)
         p.add_argument("--data", type=Path, required=True)
@@ -267,6 +351,7 @@ def main() -> None:
             p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
             p.add_argument("--max-side", type=int, default=1280)
             p.add_argument("--max-new-tokens", type=int, default=2048)
+            p.add_argument("--prompt", choices=["v1", "v2"], default="v2")
 
     args = parser.parse_args()
     if args.cmd == "synth":
@@ -278,6 +363,8 @@ def main() -> None:
 
     if args.cmd == "oracle":
         summary = oracle(args.data, args.limit)
+    elif args.cmd == "rescore":
+        summary = rescore(args.data, args.pages, args.frame)
     else:
         pages_log = args.results.with_suffix(".pages.jsonl") if args.results else None
         if pages_log:
@@ -290,6 +377,7 @@ def main() -> None:
             args.max_side,
             pages_log,
             args.max_new_tokens,
+            args.prompt,
         )
     summary["dataset"] = str(args.data)
     print(_markdown(summary))
