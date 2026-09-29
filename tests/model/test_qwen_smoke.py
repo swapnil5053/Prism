@@ -39,7 +39,7 @@ def test_stop_flag_cancels(detector: QwenDetector) -> None:
 
 
 def test_version_names_model_and_settings(detector: QwenDetector, tmp_path: Path) -> None:
-    assert detector.version.endswith(":none:112")
+    assert detector.version.endswith(":none:112:prompt-v2")
 
 
 def test_quantisation_needs_gpu(tmp_path: Path) -> None:

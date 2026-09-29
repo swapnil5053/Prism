@@ -27,13 +27,33 @@ from .parse import ParseResult, parse_elements
 
 log = logging.getLogger(__name__)
 
-PROMPT = (
-    "Detect every user interface element in this screenshot. "
-    'Output a JSON array only. Each item: {"bbox_2d": [x1, y1, x2, y2], '
-    '"label": one of "button", "link", "input", "checkbox", "icon", "text", "image", '
-    '"text": the visible text, or "" if none}. '
-    "Use one item per element. Do not group several elements into one box."
-)
+# v1 gave good boxes but called most links and buttons "text" (see eval/README.md).
+# v2 defines each label and says where the box goes.
+PROMPTS = {
+    "v1": (
+        "Detect every user interface element in this screenshot. "
+        'Output a JSON array only. Each item: {"bbox_2d": [x1, y1, x2, y2], '
+        '"label": one of "button", "link", "input", "checkbox", "icon", "text", "image", '
+        '"text": the visible text, or "" if none}. '
+        "Use one item per element. Do not group several elements into one box."
+    ),
+    "v2": (
+        "List every user interface element in this screenshot as a JSON array. "
+        'Each item: {"bbox_2d": [x1, y1, x2, y2], "label": ..., "text": visible text or ""}.\n'
+        "Labels:\n"
+        "- button: a clickable control drawn with its own background or border. "
+        "Box the whole button shape, not just the words on it.\n"
+        "- link: clickable text without a button shape, such as items in a navigation bar.\n"
+        "- input: a text field or dropdown, even if it is empty. Box the whole field.\n"
+        "- checkbox: a checkbox, radio button or switch.\n"
+        "- icon: a small symbol that can be clicked, such as a close, menu or settings icon.\n"
+        "- image: a photo, illustration, logo, or a placeholder block where an image goes.\n"
+        "- text: any other text, such as headings, labels and paragraphs.\n"
+        "Words that belong to a button or link are part of it; don't list them again as text. "
+        "Output only the JSON array."
+    ),
+}
+DEFAULT_PROMPT = "v2"
 
 
 @dataclass
@@ -64,11 +84,14 @@ class QwenDetector:
         quant: Literal["nf4", "int8", "none"] = "nf4",
         max_side: int = 1280,
         max_new_tokens: int = 2048,
+        prompt: str = DEFAULT_PROMPT,
     ) -> None:
         self.model_id = model_id
         self.quant = quant
         self.max_side = max_side
         self.max_new_tokens = max_new_tokens
+        self.prompt = prompt
+        self._prompt_text = PROMPTS[prompt]
 
         cuda = torch.cuda.is_available()
         dtype = torch.bfloat16 if cuda and torch.cuda.is_bf16_supported() else torch.float16
@@ -109,7 +132,8 @@ class QwenDetector:
 
     @property
     def version(self) -> str:
-        return f"{self.model_id.rsplit('/', 1)[-1]}:{self.quant}:{self.max_side}"
+        name = self.model_id.rsplit("/", 1)[-1]
+        return f"{name}:{self.quant}:{self.max_side}:prompt-{self.prompt}"
 
     def detect(self, image: Image.Image, should_stop: Callable[[], bool]) -> list[Element]:
         return self.run(image, should_stop).parsed.elements
@@ -120,7 +144,10 @@ class QwenDetector:
         started = time.perf_counter()
         image = _fit(image.convert("RGB"), self.max_side)
         messages = [
-            {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": PROMPT}]}
+            {
+                "role": "user",
+                "content": [{"type": "image"}, {"type": "text", "text": self._prompt_text}],
+            }
         ]
         prompt = self._processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
