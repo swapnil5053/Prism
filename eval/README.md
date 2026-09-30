@@ -60,12 +60,64 @@ Raw numbers: [`results/oracle-test.json`](results/oracle-test.json),
 
 ### Full pipeline (`detect`)
 
+The VLM finds the elements, then the same rules run on its boxes. Runs were
+on an RTX 4060 Laptop GPU (8 GB), Windows, against synth-test pages rendered
+on that machine.
+
+Two detection scores, because they fail differently:
+
+- **boxes**: a predicted box counts if it overlaps a true element at IoU ≥ 0.5,
+  whatever label it has. This is what the contrast check needs.
+- **boxes + labels**: the label must match too. Target size only applies to
+  interactive elements, so it needs the label.
+
+Rule scores match each finding to ground truth by location.
+
+| Model (4-bit NF4) | Input side | Prompt | Pages | Boxes F1 | Boxes + labels F1 | Target size F1 | Contrast F1 | Label F1 | Peak VRAM |
+|---|---|---|---|---|---|---|---|---|---|
+| Qwen2.5-VL-3B | 1280 | v1 | 60 | 0.560 | 0.228 | 0.189 | 0.594 | 0.178 | 2.9 GB |
+| Qwen2.5-VL-3B | 896 | v1 | 60 | 0.632 | 0.272 | 0.188 | 0.728 | 0.186 | 2.6 GB |
+| Qwen2.5-VL-7B | 1280 | v1 | 40 | 0.682 | 0.338 | 0.273 | 0.683 | 0.400 | 6.7 GB |
+| **Qwen2.5-VL-3B** | **896** | **v2** | 60 | 0.638 | **0.449** | **0.713** | 0.681 | 0.187 | 2.6 GB |
+
+Mean IoU of matched boxes is about 0.80 in every run.
+
+What the runs showed:
+
+- **Boxes were fine from the start; labels weren't.** With prompt v1 the 3B
+  model never used the label "link" (138 of 211 links came back as "text")
+  and boxed the words on a button instead of the button. The confusion
+  matrices in the result files show it directly.
+- **Prompt v2** defines each label and where its box goes. Link F1 went from 0
+  to 0.69, button F1 from 0.21 to 0.43, and end-to-end target-size F1 from
+  0.19 to 0.71, with box F1 unchanged.
+- **Downscaling to 896 px helped** the 3B model (box F1 0.56 → 0.63): fewer
+  image tokens, and these pages don't have detail that needs more.
+- **7B finds more** (box F1 0.68, and far better on inputs: 0.64 vs 0.36) but
+  was only run with prompt v1, on 40 pages. It fits in 8 GB at 6.7 GB peak.
+- **Prompt v2 made the label check worse.** It told the model that words on a
+  button are part of the button, and the model applied that to inputs and
+  checkboxes too, folding their labels into the control. With fewer separate
+  label elements, the visible-label rule reports labels as missing (precision
+  0.12). That's the next prompt change.
+
+Default config: Qwen2.5-VL-3B, NF4, 896 px, prompt v2. It has the best
+end-to-end target-size score and uses a third of the memory of 7B.
+
+Speed: 3B generates about 370-410 tokens per page. Throughput varied between
+runs on the same model (5.7 to 13.9 tokens/s) with similar output lengths, so the
+speed-up in the v2 run (24 s per page at the median) shouldn't be credited to
+the prompt. A controlled timing run is still to do.
+
+Reproduce with:
+
 ```bash
 uv sync --extra worker --extra eval
-uv run prism-eval detect --data eval/data/synth-test --quant nf4 --max-side 1280 \
-    --results eval/results/detect-qwen25-3b-nf4.json
+uv run prism-eval detect --data eval/data/synth-test --limit 60 --max-side 896 \
+    --prompt v2 --results eval/results/detect-qwen25-3b-nf4-896-p2.json
+uv run prism-eval rescore --data eval/data/synth-test \
+    --pages eval/results/detect-qwen25-3b-nf4-896-p2.pages.jsonl
 ```
 
-Reports detection precision/recall per element kind, end-to-end finding
-precision/recall, valid-JSON and truncation rates, p50/p95 latency and peak
-VRAM. Not run yet.
+Each run's raw model output is kept in `results/*.pages.jsonl`, so parser or
+scoring changes can be re-scored without the GPU.

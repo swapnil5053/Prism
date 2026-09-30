@@ -19,6 +19,7 @@ web/dist/
 data/
 uploads/
 eval/data/
+eval/logs/
 
 # Model weights
 *.safetensors
