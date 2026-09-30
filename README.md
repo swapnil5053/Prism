@@ -125,6 +125,15 @@ make worker            # downloads the model on first run
 make web               # http://localhost:5173
 ```
 
+On Windows, PyPI only has CPU builds of PyTorch. After syncing the worker
+extra, swap in the CUDA build and run the worker without re-syncing:
+
+```powershell
+uv sync --extra worker
+uv pip install --reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv run --no-sync prism-worker
+```
+
 With Docker:
 
 ```bash
