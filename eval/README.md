@@ -85,8 +85,9 @@ Rule scores match each finding to ground truth by location.
 | Qwen2.5-VL-3B | 896 | v3 | 60 | 0.581 | 0.389 | 0.624 | 0.586 | 0.183 | 2.7 GB |
 | Qwen2.5-VL-7B | 896 | v2 | 60 | 0.520 | 0.434 | 0.537 | 0.577 | 0.205 | 6.3 GB |
 | Qwen2.5-VL-7B | 896 | v3 | 60 | 0.512 | 0.434 | 0.521 | 0.546 | 0.299 | 6.3 GB |
+| Qwen2.5-VL-7B | 1280 | v2 | 60 | 0.638 | **0.541** | 0.689 | **0.712** | 0.280 | 6.8 GB |
 
-Mean IoU of matched boxes is about 0.80 in every run.
+Mean IoU of matched boxes is about 0.80 for 3B and 0.73-0.79 for 7B.
 
 What the runs showed:
 
@@ -109,13 +110,22 @@ What the runs showed:
   16 real ones), so every score dropped and the label check stayed at 0.18.
   On 7B it helped inputs (F1 0.33 → 0.51) and the label check (0.21 → 0.30),
   but not enough to change the default.
-- **7B seems to need the higher resolution.** At 1280 px (prompt v1) its box
-  F1 was 0.68; at 896 px it scored 0.52 with both v2 and v3, and on 5 of 60
-  pages it repeated the same element until it hit the 2048-token limit. A 7B
-  run at 1280 px with v2 would separate the effect of resolution from prompt.
+- **7B needs the higher resolution.** With prompt v2, box F1 went from 0.52
+  at 896 px to 0.64 at 1280 px, and the runs where it looped until the
+  2048-token limit dropped from 5 pages in 60 to 1.
+- **7B at 1280 px vs 3B at 896 px** (both prompt v2): the same box F1 (0.64),
+  but 7B gets the labels right more often (0.54 vs 0.45; links 0.90 vs 0.69,
+  text 0.66 vs 0.52), which lifts contrast (0.71 vs 0.68) and the label check
+  (0.28 vs 0.19). Target size is about even (0.69 vs 0.71). It costs 6.8 GB of
+  VRAM against 2.6 GB.
 
-Default config: Qwen2.5-VL-3B, NF4, 896 px, prompt v2. It has the best box
-and target-size scores of every run and uses under half the memory of 7B.
+Default config: Qwen2.5-VL-3B, NF4, 896 px, prompt v2. It ties 7B on boxes,
+leads on target size and fits GPUs with 4 GB. On an 8 GB card, 7B at 1280 px
+is the more accurate choice:
+
+```bash
+PRISM_DETECTOR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct PRISM_DETECTOR_MAX_SIDE=1280 make worker
+```
 
 Speed: 3B generates about 370-410 tokens per page. Throughput varied between
 runs on the same model (5.7 to 13.9 tokens/s) with similar output lengths, so the

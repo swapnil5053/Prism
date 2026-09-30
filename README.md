@@ -76,22 +76,23 @@ Full tables and method: [eval/README.md](eval/README.md).
 | Target size | 1.00 | 1.00 |
 | Visible label | 1.00 | 0.75 |
 
-**End to end with the detector** (Qwen2.5-VL-3B, NF4, 896 px, 60 pages,
-RTX 4060 Laptop, 2.6 GB peak VRAM):
+**End to end with the detector** (4-bit NF4, 60 pages, RTX 4060 Laptop):
 
-| | Prompt v1 | Prompt v2 |
-|---|---|---|
-| Element boxes found (F1) | 0.63 | 0.64 |
-| Boxes with correct type (F1) | 0.27 | 0.45 |
-| Target-size findings (F1) | 0.19 | 0.71 |
-| Contrast findings (F1) | 0.73 | 0.68 |
-| Visible-label findings (F1) | 0.19 | 0.19 |
+| | 3B, prompt v1 | 3B, prompt v2 (default) | 7B, prompt v2 |
+|---|---|---|---|
+| Input size | 896 px | 896 px | 1280 px |
+| Element boxes found (F1) | 0.63 | 0.64 | 0.64 |
+| Boxes with correct type (F1) | 0.27 | 0.45 | 0.54 |
+| Target-size findings (F1) | 0.19 | 0.71 | 0.69 |
+| Contrast findings (F1) | 0.73 | 0.68 | 0.71 |
+| Visible-label findings (F1) | 0.19 | 0.19 | 0.28 |
+| Peak VRAM | 2.6 GB | 2.6 GB | 6.8 GB |
 
-Boxes were good from the start (mean IoU 0.80), but the first prompt labelled
+Boxes were good from the start (mean IoU about 0.8), but the first prompt labelled
 most links and buttons as plain text, which switched off the target-size
 check. Scoring boxes and labels separately exposed it, and defining each label
-in the prompt fixed most of it. The label check is still weak end to end; see
-Limitations.
+in the prompt fixed most of it. The 7B model labels more accurately at nearly
+three times the memory; 3B stays the default so the worker fits smaller GPUs.
 
 ## Project layout
 
@@ -161,9 +162,9 @@ checkpoint, so they need the `worker` extra but no GPU.
   as normal text.
 - The label check works from layout, so a heading directly above an unlabeled
   input reads as its label.
-- The visible-label check is weak end to end (F1 about 0.2): it needs the
-  detector to find both the input and its label, and small text is often
-  missed. A prompt aimed at this (v3) didn't help on the 3B model.
+- The visible-label check is weak end to end (F1 0.19 on 3B, 0.28 on 7B): it
+  needs the detector to find both the input and its label, and small text is
+  often missed. A prompt aimed at this (v3) didn't help on the 3B model.
 - Detection has only been measured on synthetic pages so far.
 
 More on the trade-offs: [docs/decisions.md](docs/decisions.md).

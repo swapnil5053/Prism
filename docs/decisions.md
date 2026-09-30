@@ -17,6 +17,10 @@ handles both and converts to [0, 1] of the original image before anything
 else sees them. The vision encoder stays in bf16; only the language model is
 quantised.
 
+The 7B model at 1280 px is more accurate (box+label F1 0.54 vs 0.45) and
+still fits an 8 GB card at 6.8 GB, but 3B keeps the worker usable on 4 GB
+GPUs and matches 7B on box placement. Switching is two environment variables.
+
 The output is treated as untrusted: parsed tolerantly (code fences, truncated
 arrays), validated with Pydantic, and rendered with `textContent` in the
 browser and escaped in reports. Text inside a screenshot can say anything,
