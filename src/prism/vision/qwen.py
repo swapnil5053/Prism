@@ -36,6 +36,11 @@ class DetectionRun:
     input_size: tuple[int, int]
     new_tokens: int
     seconds: float
+    prompt_tokens: int = 0
+    # Filled in when run(profile=True).
+    preprocess_s: float | None = None
+    prefill_s: float | None = None  # until the first new token is ready
+    decode_tokens_per_s: float | None = None
 
 
 class _StopWhen(StoppingCriteria):
@@ -47,6 +52,25 @@ class _StopWhen(StoppingCriteria):
     ) -> torch.BoolTensor:
         stop = self._should_stop()
         return torch.full((input_ids.shape[0],), stop, dtype=torch.bool, device=input_ids.device)  # type: ignore[return-value]
+
+
+class _TokenClock(StoppingCriteria):
+    """Notes when each new token is ready. Never stops generation.
+
+    Generation is asynchronous on the GPU, so it synchronises before reading
+    the clock. That costs a little speed, which is why it's opt-in.
+    """
+
+    def __init__(self) -> None:
+        self.times: list[float] = []
+
+    def __call__(
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs: Any
+    ) -> torch.BoolTensor:
+        if input_ids.is_cuda:
+            torch.cuda.synchronize(input_ids.device)
+        self.times.append(time.perf_counter())
+        return torch.zeros(input_ids.shape[0], dtype=torch.bool, device=input_ids.device)  # type: ignore[return-value]
 
 
 class QwenDetector:
@@ -112,7 +136,11 @@ class QwenDetector:
         return self.run(image, should_stop).parsed.elements
 
     def run(
-        self, image: Image.Image, should_stop: Callable[[], bool] = lambda: False
+        self,
+        image: Image.Image,
+        should_stop: Callable[[], bool] = lambda: False,
+        *,
+        profile: bool = False,
     ) -> DetectionRun:
         started = time.perf_counter()
         image = _fit(image.convert("RGB"), self.max_side)
@@ -129,17 +157,25 @@ class QwenDetector:
             self._model.device
         )
 
+        criteria = StoppingCriteriaList([_StopWhen(should_stop)])
+        clock = _TokenClock() if profile else None
+        if clock is not None:
+            criteria.append(clock)
+            if inputs["input_ids"].is_cuda:
+                torch.cuda.synchronize()
+        generate_started = time.perf_counter()
         with torch.inference_mode():
             output = self._model.generate(
                 **inputs,
                 max_new_tokens=self.max_new_tokens,
                 do_sample=False,
-                stopping_criteria=StoppingCriteriaList([_StopWhen(should_stop)]),
+                stopping_criteria=criteria,
             )
         if should_stop():
             raise DetectionCanceled
 
-        new_tokens = output[0, inputs["input_ids"].shape[1] :]
+        prompt_tokens = int(inputs["input_ids"].shape[1])
+        new_tokens = output[0, prompt_tokens:]
         text = self._processor.decode(new_tokens, skip_special_tokens=True)
 
         # The processor resizes to a multiple of the patch size; boxes refer to that.
@@ -154,13 +190,22 @@ class QwenDetector:
             log.warning(
                 "model output hit max_new_tokens=%d, kept partial list", self.max_new_tokens
             )
-        return DetectionRun(
+        run = DetectionRun(
             parsed=parsed,
             raw_text=text,
             input_size=frame,
             new_tokens=int(new_tokens.shape[0]),
             seconds=time.perf_counter() - started,
+            prompt_tokens=prompt_tokens,
         )
+        if clock is not None and clock.times:
+            run.preprocess_s = generate_started - started
+            run.prefill_s = clock.times[0] - generate_started
+            if len(clock.times) > 1:
+                run.decode_tokens_per_s = (len(clock.times) - 1) / (
+                    clock.times[-1] - clock.times[0]
+                )
+        return run
 
 
 def _fit(image: Image.Image, max_side: int) -> Image.Image:

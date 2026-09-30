@@ -1,0 +1,190 @@
+{
+  "model": "Qwen2.5-VL-3B-Instruct",
+  "quant": "nf4",
+  "max_side": 896,
+  "prompt": "v2",
+  "peak_vram_gb": 2.65,
+  "text_source": "ocr",
+  "note": "Same model outputs as detect-qwen25-3b-nf4-896-p2.json, re-scored with prism-eval rescore --text ocr: the model's text items are replaced by OCR lines (rapidocr, PP-OCRv6 small, CPU). Latency is the model's alone; OCR adds about 0.5-1 s per page on a CPU.",
+  "source": "detect-qwen25-3b-nf4-896-p2.pages.jsonl",
+  "pages": 60,
+  "valid_json_rate": 0.983,
+  "latency_s": {
+    "p50": 24.16,
+    "p95": 43.59
+  },
+  "tokens_per_second": 13.9,
+  "detection": {
+    "boxes_any_label": {
+      "tp": 681,
+      "fp": 143,
+      "fn": 284,
+      "precision": 0.826,
+      "recall": 0.706,
+      "f1": 0.761,
+      "mean_iou": 0.779
+    },
+    "boxes_and_labels": {
+      "tp": 478,
+      "fp": 346,
+      "fn": 487,
+      "precision": 0.58,
+      "recall": 0.495,
+      "f1": 0.534
+    },
+    "button": {
+      "tp": 66,
+      "fp": 81,
+      "fn": 93,
+      "precision": 0.449,
+      "recall": 0.415,
+      "f1": 0.431
+    },
+    "checkbox": {
+      "tp": 13,
+      "fp": 6,
+      "fn": 18,
+      "precision": 0.684,
+      "recall": 0.419,
+      "f1": 0.52
+    },
+    "icon": {
+      "tp": 2,
+      "fp": 26,
+      "fn": 58,
+      "precision": 0.071,
+      "recall": 0.033,
+      "f1": 0.045
+    },
+    "image": {
+      "tp": 7,
+      "fp": 0,
+      "fn": 162,
+      "precision": 1.0,
+      "recall": 0.041,
+      "f1": 0.08
+    },
+    "input": {
+      "tp": 31,
+      "fp": 55,
+      "fn": 56,
+      "precision": 0.36,
+      "recall": 0.356,
+      "f1": 0.358
+    },
+    "link": {
+      "tp": 133,
+      "fp": 42,
+      "fn": 78,
+      "precision": 0.76,
+      "recall": 0.63,
+      "f1": 0.689
+    },
+    "text": {
+      "tp": 226,
+      "fp": 136,
+      "fn": 22,
+      "precision": 0.624,
+      "recall": 0.911,
+      "f1": 0.741
+    }
+  },
+  "confusion_truth_to_predicted": {
+    "button": {
+      "button": 62,
+      "link": 25,
+      "input": 8,
+      "checkbox": 0,
+      "icon": 0,
+      "text": 25,
+      "image": 0,
+      "missed": 39
+    },
+    "link": {
+      "button": 47,
+      "link": 131,
+      "input": 0,
+      "checkbox": 0,
+      "icon": 0,
+      "text": 31,
+      "image": 0,
+      "missed": 2
+    },
+    "input": {
+      "button": 0,
+      "link": 0,
+      "input": 31,
+      "checkbox": 0,
+      "icon": 0,
+      "text": 0,
+      "image": 0,
+      "missed": 56
+    },
+    "checkbox": {
+      "button": 0,
+      "link": 0,
+      "input": 0,
+      "checkbox": 13,
+      "icon": 0,
+      "text": 0,
+      "image": 0,
+      "missed": 18
+    },
+    "icon": {
+      "button": 0,
+      "link": 0,
+      "input": 0,
+      "checkbox": 0,
+      "icon": 2,
+      "text": 10,
+      "image": 0,
+      "missed": 48
+    },
+    "text": {
+      "button": 0,
+      "link": 9,
+      "input": 0,
+      "checkbox": 2,
+      "icon": 0,
+      "text": 226,
+      "image": 0,
+      "missed": 11
+    },
+    "image": {
+      "button": 13,
+      "link": 0,
+      "input": 27,
+      "checkbox": 0,
+      "icon": 12,
+      "text": 0,
+      "image": 7,
+      "missed": 110
+    }
+  },
+  "rules_end_to_end": {
+    "target-size": {
+      "tp": 251,
+      "fp": 101,
+      "fn": 112,
+      "precision": 0.713,
+      "recall": 0.691,
+      "f1": 0.702
+    },
+    "text-contrast": {
+      "tp": 328,
+      "fp": 106,
+      "fn": 57,
+      "precision": 0.756,
+      "recall": 0.852,
+      "f1": 0.801
+    },
+    "visible-label": {
+      "tp": 12,
+      "fp": 59,
+      "fn": 17,
+      "precision": 0.169,
+      "recall": 0.414,
+      "f1": 0.24
+    }
+  }
+}

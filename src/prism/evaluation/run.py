@@ -4,6 +4,7 @@
     prism-eval oracle --data eval/data/synth           # audit rules on true boxes (CPU)
     prism-eval detect --data eval/data/synth --quant nf4 --max-side 896   # needs a GPU
     prism-eval rescore --data eval/data/synth --pages eval/results/<run>.pages.jsonl
+    prism-eval timing --data eval/data/synth --pages 10 --repeats 3    # needs a GPU
 
 Every command prints a Markdown table and writes a JSON summary to --results.
 """
@@ -11,7 +12,6 @@ Every command prints a Markdown table and writes a JSON summary to --results.
 import argparse
 import json
 import statistics
-import time
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -21,7 +21,8 @@ from PIL import Image
 from prism.a11y import audit
 from prism.a11y.contrast import LARGE_TEXT, NORMAL_TEXT, contrast_ratio, estimate
 from prism.a11y.target_size import MIN_CSS_PX
-from prism.domain import Element, ElementKind, Finding
+from prism.domain import Box, Element, ElementKind, Finding
+from prism.vision.hybrid import merge
 from prism.vision.parse import parse_elements
 from prism.vision.prompts import DEFAULT_PROMPT, PROMPTS
 
@@ -166,102 +167,14 @@ class PipelineScore:
         }
 
 
-def detect(
-    data: Path,
-    limit: int | None,
-    model: str,
-    quant: str,
-    max_side: int,
-    pages_log: Path | None = None,
-    max_new_tokens: int = 2048,
-    prompt: str = DEFAULT_PROMPT,
-) -> dict[str, Any]:
-    import torch
+def rescore(data: Path, pages_log: Path, frame: str, text: str = "model") -> dict[str, Any]:
+    """Re-parse and re-score a saved detect run with the current code. No GPU.
 
-    from prism.vision.qwen import QwenDetector
-
-    detector = QwenDetector(
-        model,
-        quant=quant,  # type: ignore[arg-type]
-        max_side=max_side,
-        max_new_tokens=max_new_tokens,
-        prompt=prompt,
-    )
-    if torch.cuda.is_available():
-        torch.cuda.reset_peak_memory_stats()
-
-    score = PipelineScore()
-    latencies: list[float] = []
-    valid = truncated = hit_limit = pages = errors = 0
-    total = sum(1 for _ in load(data, limit))
-    log = pages_log.open("w", encoding="utf-8") if pages_log else None
-    try:
-        for page in load(data, limit):
-            with Image.open(page.image) as img:
-                image = img.convert("RGB")
-            started = time.perf_counter()
-            try:
-                run = detector.run(image)
-            except torch.cuda.OutOfMemoryError:
-                # One oversized page shouldn't end an unattended run.
-                errors += 1
-                torch.cuda.empty_cache()
-                print(f"[{pages + errors}/{total}] {page.image.name}: out of memory, skipped")
-                continue
-            seconds = time.perf_counter() - started
-            latencies.append(seconds)
-            pages += 1
-            valid += run.parsed.valid_json
-            truncated += run.parsed.truncated
-            hit_limit += run.new_tokens >= max_new_tokens
-            strict = score.add(page, image, run.parsed.elements)
-
-            print(
-                f"[{pages + errors}/{total}] {page.image.name}: {seconds:.1f}s, "
-                f"{run.new_tokens} tokens, {len(run.parsed.elements)}/{len(page.elements)} "
-                f"elements, box F1 so far {score.boxes.f1:.3f}",
-                flush=True,
-            )
-            if log is not None:
-                record = {
-                    "image": page.image.name,
-                    "seconds": round(seconds, 2),
-                    "input_size": run.input_size,
-                    "new_tokens": run.new_tokens,
-                    "valid_json": run.parsed.valid_json,
-                    "truncated": run.parsed.truncated,
-                    "dropped": run.parsed.dropped,
-                    "matched": strict.overall.tp,
-                    "predicted": len(run.parsed.elements),
-                    "truth": len(page.elements),
-                    "raw": run.raw_text,
-                }
-                log.write(json.dumps(record) + "\n")
-                log.flush()
-    finally:
-        if log is not None:
-            log.close()
-
-    peak_gb = torch.cuda.max_memory_allocated() / 1e9 if torch.cuda.is_available() else None
-    return {
-        "model": detector.version,
-        "pages": pages,
-        "pages_out_of_memory": errors,
-        "valid_json_rate": round(valid / pages, 3) if pages else None,
-        "truncated_rate": round(truncated / pages, 3) if pages else None,
-        "hit_token_limit_rate": round(hit_limit / pages, 3) if pages else None,
-        "latency_s": {
-            "p50": round(percentile(latencies, 0.5), 2),
-            "p95": round(percentile(latencies, 0.95), 2),
-        },
-        "peak_vram_gb": round(peak_gb, 2) if peak_gb is not None else None,
-        **score.summary(),
-    }
-
-
-def rescore(data: Path, pages_log: Path, frame: str) -> dict[str, Any]:
-    """Re-parse and re-score a saved detect run with the current code. No GPU."""
+    With text="ocr", uses the OCR lines saved in the log, or runs OCR (CPU) on
+    pages logged without them.
+    """
     pages = {p.image.name: p for p in load(data)}
+    reader = None
     score = PipelineScore()
     latencies: list[float] = []
     tokens: list[float] = []
@@ -273,13 +186,23 @@ def rescore(data: Path, pages_log: Path, frame: str) -> dict[str, Any]:
             w, h = (1000, 1000) if frame == "1000" else rec["input_size"]
             parsed = parse_elements(rec["raw"], w, h)
             with Image.open(page.image) as img:
-                score.add(page, img.convert("RGB"), parsed.elements)
+                image = img.convert("RGB")
+            elements = parsed.elements
+            if text == "ocr":
+                if "ocr" in rec:
+                    lines = [_line_from_record(i, r) for i, r in enumerate(rec["ocr"])]
+                else:
+                    reader = reader or ocr_reader()
+                    lines = reader.read(image)
+                elements = merge(elements, lines)
+            score.add(page, image, elements)
             latencies.append(rec["seconds"])
             tokens.append(rec["new_tokens"])
             valid += parsed.valid_json
             n += 1
     return {
         "source": str(pages_log),
+        "text_source": text,
         "pages": n,
         "valid_json_rate": round(valid / n, 3) if n else None,
         "latency_s": {
@@ -289,6 +212,23 @@ def rescore(data: Path, pages_log: Path, frame: str) -> dict[str, Any]:
         "tokens_per_second": round(sum(tokens) / sum(latencies), 1) if latencies else None,
         **score.summary(),
     }
+
+
+def ocr_reader() -> Any:
+    from prism.vision.ocr import OcrReader
+
+    return OcrReader()
+
+
+def line_record(e: Element) -> list[Any]:
+    return [round(v, 5) for v in (e.box.x1, e.box.y1, e.box.x2, e.box.y2)] + [e.text or ""]
+
+
+def _line_from_record(i: int, rec: list[Any]) -> Element:
+    x1, y1, x2, y2, words = rec
+    return Element(
+        id=i, kind=ElementKind.TEXT, box=Box(x1=x1, y1=y1, x2=x2, y2=y2), text=words or None
+    )
 
 
 def _counts(c: Counts) -> dict[str, float | int]:
@@ -340,19 +280,32 @@ def main() -> None:
     r.add_argument("--data", type=Path, required=True)
     r.add_argument("--pages", type=Path, required=True, help="a <results>.pages.jsonl file")
     r.add_argument("--frame", choices=["pixels", "1000"], default="pixels")
+    r.add_argument("--text", choices=["model", "ocr"], default="model")
     r.add_argument("--results", type=Path)
+
+    t = sub.add_parser("timing", help="profile where detection time goes (GPU)")
+    t.add_argument("--data", type=Path, required=True)
+    t.add_argument("--pages", type=int, default=10)
+    t.add_argument("--repeats", type=int, default=3)
+    t.add_argument("--results", type=Path)
 
     for name in ("oracle", "detect"):
         p = sub.add_parser(name)
         p.add_argument("--data", type=Path, required=True)
         p.add_argument("--limit", type=int)
         p.add_argument("--results", type=Path)
-        if name == "detect":
-            p.add_argument("--model", default="Qwen/Qwen2.5-VL-3B-Instruct")
-            p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
-            p.add_argument("--max-side", type=int, default=896)
-            p.add_argument("--max-new-tokens", type=int, default=2048)
-            p.add_argument("--prompt", choices=sorted(PROMPTS), default=DEFAULT_PROMPT)
+    for p in (sub.choices["detect"], t):
+        p.add_argument("--model", default="Qwen/Qwen2.5-VL-3B-Instruct")
+        p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
+        p.add_argument("--max-side", type=int, default=896)
+        p.add_argument("--max-new-tokens", type=int, default=2048)
+        p.add_argument("--prompt", choices=sorted(PROMPTS), default=DEFAULT_PROMPT)
+        p.add_argument(
+            "--text",
+            choices=["model", "ocr"],
+            default="model",
+            help="where text lines come from: the VLM, or OCR merged with its controls",
+        )
 
     args = parser.parse_args()
     if args.cmd == "synth":
@@ -365,8 +318,24 @@ def main() -> None:
     if args.cmd == "oracle":
         summary = oracle(args.data, args.limit)
     elif args.cmd == "rescore":
-        summary = rescore(args.data, args.pages, args.frame)
+        summary = rescore(args.data, args.pages, args.frame, args.text)
+    elif args.cmd == "timing":
+        from .gpu import timing
+
+        summary = timing(
+            args.data,
+            args.pages,
+            args.repeats,
+            args.model,
+            args.quant,
+            args.max_side,
+            args.prompt,
+            args.text,
+            args.max_new_tokens,
+        )
     else:
+        from .gpu import detect
+
         pages_log = args.results.with_suffix(".pages.jsonl") if args.results else None
         if pages_log:
             pages_log.parent.mkdir(parents=True, exist_ok=True)
@@ -379,9 +348,10 @@ def main() -> None:
             pages_log,
             args.max_new_tokens,
             args.prompt,
+            args.text,
         )
     summary["dataset"] = str(args.data)
-    print(_markdown(summary))
+    print(_markdown({k: v for k, v in summary.items() if k != "runs"}))
     if args.results:
         args.results.parent.mkdir(parents=True, exist_ok=True)
         args.results.write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

@@ -27,6 +27,9 @@ worker = [
     "transformers>=4.56",
     "accelerate>=1.0",
     "bitsandbytes>=0.44",
+    "rapidocr>=3.4",
+    "onnxruntime>=1.20",
+    "opencv-python-headless>=4.10",
 ]
 eval = [
     "playwright>=1.45",
@@ -47,6 +50,11 @@ dev = [
     "mypy>=1.11",
     "httpx-ws>=0.7",
 ]
+
+[tool.uv]
+# rapidocr asks for the desktop OpenCV build, which needs libGL at import time.
+# The headless build provides the same cv2 module without it.
+override-dependencies = ["opencv-python; sys_platform == 'never'"]
 
 [build-system]
 requires = ["hatchling"]
@@ -103,5 +111,11 @@ source = ["src/prism"]
 branch = true
 # SQLAlchemy's asyncio layer runs on greenlets; without this, lines after awaits look unrun.
 concurrency = ["greenlet", "thread"]
-# Entry points, and the model backend (covered by the separate `model` CI job).
-omit = ["*/__main__.py", "src/prism/vision/qwen.py", "src/prism/worker/settings.py"]
+# Entry points, and the model and OCR backends (covered by the separate `model` CI job).
+omit = [
+    "*/__main__.py",
+    "src/prism/vision/qwen.py",
+    "src/prism/vision/ocr.py",
+    "src/prism/evaluation/gpu.py",
+    "src/prism/worker/settings.py",
+]

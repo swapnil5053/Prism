@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     detector_quant: Literal["nf4", "int8", "none"] = "nf4"
     # Longest image side fed to the model. Bigger finds small icons but costs VRAM and time.
     detector_max_side: int = Field(default=896, ge=448, le=2048)
+    detector_prompt: Literal["v1", "v2", "v3", "v4"] = "v2"
+    # "ocr": text lines come from OCR and the VLM's text items are dropped
+    # (vision/hybrid.py). "model": the VLM finds text too.
+    detector_text: Literal["ocr", "model"] = "ocr"
     job_timeout_s: int = Field(default=300, gt=0)
 
     # Pillow's own bomb guard trips at ~89M pixels; screenshots never need that many.

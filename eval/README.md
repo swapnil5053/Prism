@@ -119,9 +119,51 @@ What the runs showed:
   (0.28 vs 0.19). Target size is about even (0.69 vs 0.71). It costs 6.8 GB of
   VRAM against 2.6 GB.
 
-Default config: Qwen2.5-VL-3B, NF4, 896 px, prompt v2. It ties 7B on boxes,
-leads on target size and fits GPUs with 4 GB. On an 8 GB card, 7B at 1280 px
-is the more accurate choice:
+### Text from OCR
+
+Every run above missed a lot of small text. An OCR model (PP-OCRv6 small via
+rapidocr, CPU) run on the same 60 pages finds 247 of 248 text elements and
+204 of 211 links, at about 0.5-1 s per page. With `--text ocr` the model's
+text items are dropped and replaced by OCR lines; an OCR line mostly inside a
+detected control is treated as that control's caption instead
+(`src/prism/vision/hybrid.py`).
+
+Re-scoring the saved outputs of all eight runs this way, without re-running
+the model (before → after):
+
+| Run | Boxes F1 | Text F1 | Contrast F1 | Target size F1 | Label F1 |
+|---|---|---|---|---|---|
+| 3B, 1280, v1 | 0.56 → 0.72 | 0.41 → 0.56 | 0.59 → 0.79 | 0.19 → 0.19 | 0.18 → 0.23 |
+| 3B, 896, v1 | 0.63 → 0.72 | 0.44 → 0.56 | 0.73 → 0.81 | 0.19 → 0.18 | 0.19 → 0.22 |
+| **3B, 896, v2** | 0.64 → **0.76** | 0.52 → **0.74** | 0.68 → **0.80** | 0.71 → 0.70 | 0.19 → 0.24 |
+| 3B, 896, v3 | 0.58 → 0.74 | 0.51 → 0.69 | 0.59 → 0.80 | 0.62 → 0.61 | 0.18 → 0.23 |
+| 7B, 1280, v1 (40 pages) | 0.68 → 0.81 | 0.40 → 0.60 | 0.68 → 0.83 | 0.27 → 0.29 | 0.40 → 0.41 |
+| 7B, 1280, v2 | 0.64 → 0.73 | 0.66 → 0.76 | 0.71 → 0.78 | 0.69 → 0.66 | 0.28 → 0.28 |
+| 7B, 896, v2 | 0.52 → 0.69 | 0.44 → 0.70 | 0.58 → 0.75 | 0.54 → 0.51 | 0.21 → 0.19 |
+| 7B, 896, v3 | 0.51 → 0.74 | 0.42 → 0.68 | 0.55 → 0.78 | 0.52 → 0.50 | 0.30 → 0.28 |
+
+- Boxes and contrast improve in every run. Contrast with OCR text (0.80) is
+  close to the ceiling set by the rule itself on perfect boxes (0.90).
+- Text F1 stops short of the OCR's recall because of precision: placeholder
+  text inside an input the model missed is scored as extra text.
+- Target size and the label check barely move, because they depend on
+  controls, which still come from the model. In the default run, 25 of the
+  59 false label findings are image placeholders the model called "input",
+  and 17 of the 29 unlabeled controls were never detected.
+- The 7B model's advantage came mostly from reading more text. With OCR, 3B
+  is ahead on boxes, contrast and target size, and 7B on labels.
+
+Raw numbers: [`results/detect-qwen25-3b-nf4-896-p2-ocr.json`](results/detect-qwen25-3b-nf4-896-p2-ocr.json),
+[`results/detect-qwen25-7b-nf4-1280-p2-ocr.json`](results/detect-qwen25-7b-nf4-1280-p2-ocr.json).
+
+Prompt v4 is written for this setup: it asks only for controls and images
+and leaves out the "text" field, so the model should generate far fewer
+tokens.
+
+### Default config
+
+Qwen2.5-VL-3B, NF4, 896 px, prompt v2, text from OCR (`PRISM_DETECTOR_TEXT=ocr`).
+7B at 1280 px fits an 8 GB card and labels controls a little better:
 
 ```bash
 PRISM_DETECTOR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct PRISM_DETECTOR_MAX_SIDE=1280 make worker
@@ -130,7 +172,9 @@ PRISM_DETECTOR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct PRISM_DETECTOR_MAX_SIDE=1280 ma
 Speed: 3B generates about 370-410 tokens per page. Throughput varied between
 runs on the same model (5.7 to 13.9 tokens/s) with similar output lengths, so the
 speed-up in the v2 run (24 s per page at the median) shouldn't be credited to
-the prompt. A controlled timing run is still to do.
+the prompt. `prism-eval timing` is the controlled version: the same pages run
+several times after a warm-up, with prefill and decoding timed separately and
+the GPU's clock, power and temperature sampled during each page.
 
 Reproduce with:
 
@@ -139,7 +183,9 @@ uv sync --extra worker --extra eval
 uv run prism-eval detect --data eval/data/synth-test --limit 60 --max-side 896 \
     --prompt v2 --results eval/results/detect-qwen25-3b-nf4-896-p2.json
 uv run prism-eval rescore --data eval/data/synth-test \
-    --pages eval/results/detect-qwen25-3b-nf4-896-p2.pages.jsonl
+    --pages eval/results/detect-qwen25-3b-nf4-896-p2.pages.jsonl --text ocr
+uv run prism-eval timing --data eval/data/synth-test --pages 10 --repeats 3 \
+    --prompt v4 --text ocr --results eval/results/timing-qwen25-3b-896-p4-ocr.json
 ```
 
 Each run's raw model output is kept in `results/*.pages.jsonl`, so parser or

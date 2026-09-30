@@ -17,11 +17,19 @@ def load_detector(settings: Settings) -> Detector:
     # Imported here so the API and tests never pull in torch.
     from prism.vision.qwen import QwenDetector
 
-    return QwenDetector(
+    detector = QwenDetector(
         settings.detector_model,
         quant=settings.detector_quant,
         max_side=settings.detector_max_side,
+        prompt=settings.detector_prompt,
     )
+    if settings.detector_text == "model":
+        return detector
+
+    from prism.vision.hybrid import HybridDetector
+    from prism.vision.ocr import OcrReader
+
+    return HybridDetector(detector, OcrReader())
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -29,8 +37,8 @@ async def startup(ctx: dict[str, Any]) -> None:
     engine = make_engine(settings)
     ctx.update(settings=settings, engine=engine, sessionmaker=make_sessionmaker(engine))
     # Load once, before taking jobs: the first request shouldn't pay for it.
-    log.info("loading detector %s (%s)", settings.detector_model, settings.detector_quant)
-    ctx["detector"] = load_detector(settings)
+    ctx["detector"] = detector = load_detector(settings)
+    log.info("detector ready: %s", detector.version)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:

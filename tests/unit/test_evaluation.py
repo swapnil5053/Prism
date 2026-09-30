@@ -109,3 +109,21 @@ def test_rescore_scores_boxes_and_labels_separately(tmp_path: Path) -> None:
     # The contrast finding lands on the right element despite the wrong label.
     assert summary["rules_end_to_end"]["text-contrast"]["tp"] == 1
     assert summary["tokens_per_second"] == 20.0
+
+
+def test_rescore_merges_saved_ocr_lines(tmp_path: Path) -> None:
+    write_page(tmp_path)
+    # The model found only the icon; OCR found both text lines. No OCR engine needed:
+    # the lines saved in the log are used.
+    raw = json.dumps([{"bbox_2d": [20, 120, 31, 131], "label": "icon"}])
+    ocr = [[0.04, 0.08, 0.35, 0.21, "Low contrast"], [0.04, 0.28, 0.375, 0.41, "Readable text"]]
+    log = tmp_path / "run.pages.jsonl"
+    record = {"image": "p.png", "seconds": 1.0, "new_tokens": 10, "input_size": [400, 200]}
+    log.write_text(json.dumps({**record, "raw": raw, "ocr": ocr}) + "\n")
+
+    without = rescore(tmp_path, log, frame="pixels")
+    with_ocr = rescore(tmp_path, log, frame="pixels", text="ocr")
+    assert without["detection"]["boxes_any_label"]["tp"] == 1
+    assert with_ocr["detection"]["boxes_any_label"]["tp"] == 3
+    assert with_ocr["rules_end_to_end"]["text-contrast"]["tp"] == 1
+    assert with_ocr["text_source"] == "ocr"

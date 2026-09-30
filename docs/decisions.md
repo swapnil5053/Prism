@@ -17,9 +17,11 @@ handles both and converts to [0, 1] of the original image before anything
 else sees them. The vision encoder stays in bf16; only the language model is
 quantised.
 
-The 7B model at 1280 px is more accurate (box+label F1 0.54 vs 0.45) and
-still fits an 8 GB card at 6.8 GB, but 3B keeps the worker usable on 4 GB
-GPUs and matches 7B on box placement. Switching is two environment variables.
+The 7B model at 1280 px labels elements more accurately (box+label F1 0.54
+vs 0.45) and still fits an 8 GB card at 6.8 GB. Most of that lead was on
+text, though, and with OCR finding the text (below) the two are close: 7B is
+ahead on labels and the label check, 3B on boxes, target size and contrast.
+3B stays the default; it needs 2.6 GB. Switching is two environment variables.
 
 The output is treated as untrusted: parsed tolerantly (code fences, truncated
 arrays), validated with Pydantic, and rendered with `textContent` in the
@@ -39,6 +41,34 @@ strict score just looked uniformly bad.
 A third prompt tried to keep form labels as separate text for the label
 check. It made the 3B model list fewer elements overall and scored lower on
 everything, so v2 stays the default and v3 is kept for comparison.
+
+## Text from OCR
+
+Scoring boxes by kind showed where the models were weak: small text. The 3B
+model missed 144 of 248 text elements; the 7B at 1280 px still missed 92.
+Contrast is checked on text, so every missed line is a missed finding.
+
+A dedicated OCR model (PP-OCRv6 small through rapidocr, ONNX on the CPU)
+finds 247 of the 248 and 204 of 211 links, in about half a second a page. So
+the pipeline splits the job: OCR finds text, the VLM finds and classifies
+controls and images, and `vision/hybrid.py` merges them. The VLM's own text
+items are dropped. An OCR line counts as a control's caption, not separate
+text, when at least half of it lies inside a button, link, input, checkbox
+or icon; images don't swallow text, so a headline over a hero image stays.
+
+Re-scoring the saved model outputs with OCR text improved box F1 and
+contrast F1 on every one of the eight runs (3B v2: 0.64 to 0.76, and 0.68 to
+0.80). It didn't help the label check. That check fails on controls, not
+text: models call empty image placeholders "input", and miss more than half
+of the unlabeled inputs and checkboxes.
+
+With OCR doing the text, the VLM no longer needs to write it out. Generation
+is where the time goes, so prompt v4 asks only for controls and images and
+drops the "text" field, which should cut output tokens substantially.
+
+rapidocr depends on the desktop OpenCV build, which needs libGL at import
+and would break the slim worker image. A uv override swaps in the headless
+build, which provides the same `cv2` module.
 
 ## Contrast from pixels
 

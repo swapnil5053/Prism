@@ -45,5 +45,21 @@ PROMPTS = {
         "A label beside or above an input or checkbox is a separate text item. "
         "Output only the JSON array."
     ),
+    # For the OCR pipeline (vision/hybrid.py): OCR supplies the text, so the model
+    # only lists controls and images, and doesn't spend tokens writing out words.
+    "v4": (
+        "List the controls and images in this screenshot as a JSON array. "
+        'Each item: {"bbox_2d": [x1, y1, x2, y2], "label": ...}.\n'
+        "Labels:\n"
+        "- button: a clickable control drawn with its own background or border. "
+        "Box the whole button shape, not just the words on it.\n"
+        "- link: clickable text without a button shape, such as items in a navigation bar.\n"
+        "- input: a text field or dropdown, even if it is empty. Box only the field itself.\n"
+        "- checkbox: a checkbox, radio button or switch. Box only the small control.\n"
+        "- icon: a small symbol that can be clicked, such as a close, menu or settings icon.\n"
+        "- image: a photo, illustration, logo, or a filled block where an image goes.\n"
+        "Don't list plain text such as headings, paragraphs or labels. "
+        "Output only the JSON array."
+    ),
 }
 DEFAULT_PROMPT = "v2"
