@@ -1,5 +1,6 @@
-# CPU services: database, queue, API + web. Add the GPU worker with:
-#   docker compose -f compose.yaml -f compose.gpu.yaml up
+# CPU services: database, queue, API + web. From the repo root:
+#   make up        (or: docker compose --env-file .env -f deploy/compose.yaml up --build)
+#   make up-gpu    adds the GPU worker (deploy/compose.gpu.yaml)
 name: prism
 
 x-env: &env
@@ -30,7 +31,7 @@ services:
       interval: 5s
 
   migrate:
-    build: { context: ., dockerfile: docker/api.Dockerfile }
+    build: { context: .., dockerfile: deploy/api.Dockerfile }
     image: prism-api
     command: ["alembic", "upgrade", "head"]
     environment: *env

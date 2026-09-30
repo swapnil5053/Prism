@@ -19,8 +19,7 @@ RUN useradd --create-home --uid 10001 prism
 WORKDIR /app
 COPY --from=deps /app/.venv /app/.venv
 COPY --from=deps /app/src /app/src
-COPY alembic.ini ./
-COPY migrations/ migrations/
+COPY pyproject.toml ./
 COPY --from=web /web/dist /app/web
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \

@@ -1,6 +1,6 @@
 services:
   worker:
-    build: { context: ., dockerfile: docker/worker.Dockerfile }
+    build: { context: .., dockerfile: deploy/worker.Dockerfile }
     environment:
       PRISM_DATABASE_URL: postgresql+asyncpg://prism:${POSTGRES_PASSWORD}@postgres:5432/prism
       PRISM_REDIS_URL: redis://redis:6379/0
