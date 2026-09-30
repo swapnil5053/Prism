@@ -37,20 +37,16 @@ jobs:
       - run: uv run pytest -m "not model" --cov --cov-report=term-missing --cov-fail-under=85
 
   model:
-    # Real QwenDetector code on a tiny random checkpoint, plus mypy with torch installed.
+    # Real QwenDetector code on a tiny random checkpoint (CPU), plus mypy with torch installed.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-      - run: uv sync --frozen
-      - run: >-
-          uv pip install torch torchvision
-          --index-url https://download.pytorch.org/whl/cpu
-      - run: uv pip install "transformers>=4.56" accelerate
-      - run: uv run mypy
-      - run: uv run pytest -m model
+      - run: uv sync --frozen --extra worker
+      - run: uv run --extra worker mypy
+      - run: uv run --extra worker pytest -m model
 
   web:
     runs-on: ubuntu-latest
@@ -73,8 +69,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -f docker/api.Dockerfile -t prism-api .
-      - run: docker build -f docker/worker.Dockerfile -t prism-worker .
+      # The worker image is several GB of CUDA libraries; it's built locally, not in CI.
+      - run: docker build -f deploy/api.Dockerfile -t prism-api .
 
   security:
     runs-on: ubuntu-latest
