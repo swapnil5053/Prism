@@ -1,7 +1,5 @@
 # Prism
 
-[![CI](https://github.com/swapnil5053/Prism/actions/workflows/ci.yml/badge.svg)](https://github.com/swapnil5053/Prism/actions/workflows/ci.yml)
-
 Prism audits UI screenshots for accessibility problems. Upload a screenshot and
 it reports low text contrast, touch targets smaller than 24 CSS px, and form
 controls without a visible label, each tied to a WCAG 2.2 success criterion.
