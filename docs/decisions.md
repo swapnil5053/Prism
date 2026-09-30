@@ -6,16 +6,16 @@ The first version asked the VLM to report WCAG violations directly. It can't
 do that reliably: a contrast ratio is arithmetic on two colours, and a 3B model
 guessing it gives answers you can't test. So the model only finds elements
 (what it's good at), and each check is a small function that measures pixels
-and is unit-tested against WCAG's own reference values.
+and is unit-tested against known contrast ratios.
 
 ## Qwen2.5-VL-3B in 4-bit
 
-With NF4 weights it's small enough for an 8 GB laptop GPU (the `detect`
-benchmark records peak VRAM), and it was trained on grounding, so it emits
-boxes directly. Qwen2.5-VL writes boxes in pixels of
+With NF4 weights the 3B model peaks at 2.6 GB of VRAM, and it was trained on
+grounding, so it emits boxes directly. Qwen2.5-VL writes boxes in pixels of
 the resized image it saw; Qwen2-VL uses a 0-1000 grid. `vision/qwen.py`
 handles both and converts to [0, 1] of the original image before anything
-else sees them.
+else sees them. The vision encoder stays in bf16; only the language model is
+quantised.
 
 The output is treated as untrusted: parsed tolerantly (code fences, truncated
 arrays), validated with Pydantic, and rendered with `textContent` in the

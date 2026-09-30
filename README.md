@@ -7,8 +7,8 @@ it reports low text contrast, touch targets smaller than 24 CSS px, and form
 controls without a visible label, each tied to a WCAG 2.2 success criterion.
 
 A vision-language model (Qwen2.5-VL-3B, 4-bit) finds the elements. The checks
-are plain code that measures pixels: a 3B model can't compute a contrast ratio
-reliably, but a function can, and a unit test can prove it.
+themselves are ordinary code that measures pixels. A 3B model can't compute a
+contrast ratio reliably; a function can, and it can be unit-tested.
 
 ## Architecture
 
@@ -87,11 +87,13 @@ RTX 4060 Laptop, 2.6 GB peak VRAM):
 | Boxes with correct type (F1) | 0.27 | 0.45 |
 | Target-size findings (F1) | 0.19 | 0.71 |
 | Contrast findings (F1) | 0.73 | 0.68 |
+| Visible-label findings (F1) | 0.19 | 0.19 |
 
-Boxes were good from the start (mean IoU 0.80) but the first prompt labelled
+Boxes were good from the start (mean IoU 0.80), but the first prompt labelled
 most links and buttons as plain text, which switched off the target-size
-check. Scoring boxes and labels separately exposed it; defining each label
-in the prompt fixed most of it.
+check. Scoring boxes and labels separately exposed it, and defining each label
+in the prompt fixed most of it. The label check is still weak end to end; see
+Limitations.
 
 ## Project layout
 
@@ -114,7 +116,7 @@ docs/           design decisions
 
 ## Running locally
 
-Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20+, Postgres and
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 22+, Postgres and
 Redis. The worker needs an NVIDIA GPU (developed on an 8 GB RTX 4060).
 
 ```bash
@@ -134,10 +136,10 @@ uv pip install --reinstall torch torchvision --index-url https://download.pytorc
 uv run --no-sync prism-worker
 ```
 
-With Docker:
+With Docker (set `POSTGRES_PASSWORD` and `PRISM_SECRET_KEY` in `.env` first):
 
 ```bash
-make up                # Postgres, Redis, API and web
+make up                # Postgres, Redis, API and web on http://127.0.0.1:8000
 make up-gpu            # the same plus the GPU worker
 ```
 

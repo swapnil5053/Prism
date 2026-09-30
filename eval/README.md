@@ -4,9 +4,9 @@ Two questions, measured separately:
 
 1. **Are the audit rules right when the boxes are right?** (`oracle`) Runs the
    contrast, target-size and label checks on ground-truth boxes. CPU only.
-2. **How good is the whole pipeline?** (`detect`) Runs the VLM, matches its
-   boxes to ground truth (same kind, IoU ≥ 0.5), then scores the findings.
-   Needs a GPU.
+2. **How good is the whole pipeline?** (`detect`) Runs the VLM on the same
+   pages, matches its boxes to ground truth at IoU ≥ 0.5, then scores the
+   findings. Needs a GPU.
 
 ## Data
 
@@ -25,7 +25,10 @@ uv run prism-eval synth --out eval/data/synth-test --count 300 --seed 99
 
 The dev set (seed 13) was used while working on the rules. Numbers below are
 from the test set (seed 99), which wasn't looked at until the rules were fixed.
-Datasets aren't committed; they regenerate identically from the seed.
+Datasets aren't committed; they regenerate from the seed. Fonts differ between
+operating systems, so a page rendered on Windows has slightly different boxes
+from the same page rendered on Linux. The `oracle` numbers come from a Linux
+render and the `detect` runs from a Windows one.
 
 Any other dataset can be scored by converting it to the same format: a folder
 of images plus `labels.jsonl` (see `src/prism/evaluation/dataset.py`).
