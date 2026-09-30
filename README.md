@@ -116,7 +116,7 @@ docs/           design decisions
 
 ## Running locally
 
-Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 22+, Postgres and
+Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), Node 22+, Postgres and
 Redis. The worker needs an NVIDIA GPU (developed on an 8 GB RTX 4060).
 
 ```bash

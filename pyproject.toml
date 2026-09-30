@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Screenshot accessibility auditor: VLM element detection plus pixel-level WCAG checks."
 readme = "README.md"
 authors = [{ name = "Swapnil Shantha Kumar" }]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.30",
@@ -57,7 +57,7 @@ packages = ["src/prism"]
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "SIM", "RUF"]
@@ -69,7 +69,7 @@ ignore = ["S101"]  # asserts are fine in tests
 "src/prism/evaluation/**" = ["S311"]  # seeded randomness for data generation
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 files = ["src/prism"]
