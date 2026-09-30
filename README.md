@@ -1,101 +1,159 @@
 # Prism
 
-Upload a screenshot of a UI and get back the elements on it plus a list of
-likely accessibility problems: low text contrast, touch targets under 24 CSS
-px, and form controls with no visible label.
+[![CI](https://github.com/swapnil5053/Prism/actions/workflows/ci.yml/badge.svg)](https://github.com/swapnil5053/Prism/actions/workflows/ci.yml)
 
-A vision-language model (Qwen2.5-VL, 4-bit) finds the elements. The checks
-themselves are ordinary code that measures pixels, because a 3B model can't
-reliably compute a contrast ratio, and a unit test can check code that does.
+Prism audits UI screenshots for accessibility problems. Upload a screenshot and
+it reports low text contrast, touch targets smaller than 24 CSS px, and form
+controls without a visible label, each tied to a WCAG 2.2 success criterion.
 
-## How it works
+A vision-language model (Qwen2.5-VL-3B, 4-bit) finds the elements. The checks
+are plain code that measures pixels: a 3B model can't compute a contrast ratio
+reliably, but a function can, and a unit test can prove it.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    B[Browser] -->|upload| A[FastAPI]
+    A -->|enqueue| R[(Redis)]
+    R -->|job| D
+    subgraph W[GPU worker]
+        D[Qwen2.5-VL detector] --> C[WCAG checks]
+    end
+    C -->|result| P[(Postgres)]
+    W -->|progress events| R
+    R -->|replay from last id| A
+    A -->|WebSocket| B
+    A <-->|analyses| P
 ```
-browser ──upload──▶ FastAPI ──enqueue──▶ Redis ──▶ GPU worker (arq)
-   ▲                  │  ▲                  │          │ detect (Qwen2.5-VL)
-   └──── progress ────┘  └── event stream ──┘          │ audit (pixels)
-                      │                                 ▼
-                      └──────────── Postgres ◀──── result (JSONB)
-```
 
-- **API** (`src/prism/api`): uploads, results, reports, cancel. Anonymous
-  workspaces via an HMAC-signed cookie, so one visitor can't see another's
-  analyses. Uploads are decoded and re-encoded before storage; the client's
-  filename and content type are never trusted.
+- **API** (`src/prism/api`): upload, results, reports, cancel. Each browser gets
+  an anonymous workspace through an HMAC-signed cookie, so visitors can't read
+  each other's analyses.
 - **Worker** (`src/prism/worker`): one job at a time on one GPU. Inference runs
-  in a thread; a cancel request flips a flag the model checks every token.
+  in a thread; cancelling flips a flag the model checks on every token.
 - **Events** (`src/prism/events.py`): progress goes into a Redis stream per
-  analysis, so a browser that reconnects replays what it missed.
-- **Checks** (`src/prism/a11y`): WCAG 2.2 SC 1.4.3 (contrast), 2.5.8 (target
-  size), 3.3.2 (visible labels). See [docs/decisions.md](docs/decisions.md)
-  for how each one works and where it falls short.
-- **Web** (`web/`): plain HTML, CSS and JavaScript, built with Vite.
+  analysis. A browser that connects late or reconnects replays what it missed.
+- **Checks** (`src/prism/a11y`): contrast (SC 1.4.3), target size (SC 2.5.8),
+  visible labels (SC 3.3.2).
+
+### Lifecycle of an analysis
+
+```mermaid
+sequenceDiagram
+    participant B as Browser
+    participant A as API
+    participant R as Redis
+    participant W as Worker
+    participant P as Postgres
+    B->>A: POST /api/v1/analyses (image)
+    A->>A: decode, re-encode, store
+    A->>P: insert analysis (queued)
+    A->>R: enqueue analyze(id)
+    A-->>B: 201 queued
+    B->>A: WebSocket /analyses/{id}/events
+    R->>W: job
+    W->>P: claim (queued → running)
+    W->>R: event: detecting
+    W->>W: Qwen2.5-VL finds elements
+    W->>R: event: auditing
+    W->>W: contrast, target size, labels
+    W->>P: save result
+    W->>R: event: completed
+    R-->>A: stream entries
+    A-->>B: events, then the final result
+```
 
 ## Results
 
-On 300 synthetic pages with exact labels, held out from the pages used while
-developing the rules ([details](eval/README.md)).
+Measured on synthetic pages with exact ground truth, rendered in Chromium and
+labelled from the DOM. Rules were tuned on one seed and reported on another.
+Full tables and method: [eval/README.md](eval/README.md).
 
-The checks, given correct boxes:
+**Checks on correct boxes** (300 pages):
 
 | Check | Precision | Recall |
 |---|---|---|
-| Text contrast (1.4.3) | 0.870 | 0.931 |
-| Target size (2.5.8) | 1.000 | 1.000 |
-| Visible label (3.3.2) | 1.000 | 0.748 |
+| Text contrast | 0.87 | 0.93 |
+| Target size | 1.00 | 1.00 |
+| Visible label | 1.00 | 0.75 |
 
-End to end with the default detector (Qwen2.5-VL-3B, 4-bit, 60 pages, RTX 4060
-Laptop): boxes found at F1 0.64 (mean IoU 0.80), target-size findings at F1
-0.71, contrast findings at F1 0.68, 2.6 GB peak VRAM, 25-70 s per
-screenshot. A second prompt that defines each element type raised label
-accuracy from F1 0.27 to 0.45 and target-size F1 from 0.19 to 0.71.
+**End to end with the detector** (Qwen2.5-VL-3B, NF4, 896 px, 60 pages,
+RTX 4060 Laptop, 2.6 GB peak VRAM):
 
-## Running it
+| | Prompt v1 | Prompt v2 |
+|---|---|---|
+| Element boxes found (F1) | 0.63 | 0.64 |
+| Boxes with correct type (F1) | 0.27 | 0.45 |
+| Target-size findings (F1) | 0.19 | 0.71 |
+| Contrast findings (F1) | 0.73 | 0.68 |
 
-Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20+, Postgres and
-Redis. The worker needs an NVIDIA GPU; it's developed on an 8 GB RTX 4060.
+Boxes were good from the start (mean IoU 0.80) but the first prompt labelled
+most links and buttons as plain text, which switched off the target-size
+check. Scoring boxes and labels separately exposed it; defining each label
+in the prompt fixed most of it.
 
-```bash
-cp .env.example .env        # set PRISM_SECRET_KEY and the database URL
-make install migrate
-make api                    # http://127.0.0.1:8000/docs
-make worker                 # downloads the model on first run
-make web                    # http://localhost:5173
+## Project layout
+
+```
+src/prism/
+  api/          FastAPI app, routes, uploads, workspaces, rate limit
+  worker/       arq worker and the analyze task
+  vision/       detector interface, Qwen2.5-VL backend, output parser
+  a11y/         contrast, target size, label checks and scoring
+  db/           SQLAlchemy models and Alembic migrations
+  evaluation/   synthetic data generator, metrics, benchmark CLI
+  events.py     Redis Streams progress events
+  report.py     HTML report with the annotated screenshot
+web/            upload page (HTML, CSS, JS, Vite)
+tests/          unit, integration (Postgres + Redis), model smoke tests
+eval/           benchmark write-up and result files
+deploy/         Dockerfiles and Compose files
+docs/           design decisions
 ```
 
-Or with Docker (set `POSTGRES_PASSWORD` and `PRISM_SECRET_KEY` in `.env`):
+## Running locally
+
+Requires Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 20+, Postgres and
+Redis. The worker needs an NVIDIA GPU (developed on an 8 GB RTX 4060).
 
 ```bash
-docker compose up --build                                   # API + web, no worker
-docker compose -f compose.yaml -f compose.gpu.yaml up --build   # with the GPU worker
+cp .env.example .env   # set PRISM_SECRET_KEY and the database URL
+make install migrate
+make api               # http://127.0.0.1:8000/docs
+make worker            # downloads the model on first run
+make web               # http://localhost:5173
+```
+
+With Docker:
+
+```bash
+make up                # Postgres, Redis, API and web
+make up-gpu            # the same plus the GPU worker
 ```
 
 ## Tests
 
 ```bash
-make test        # unit + integration (needs Postgres and Redis, see below)
+make test        # unit + integration; needs Postgres and Redis
 make test-web
 make lint typecheck
 ```
 
-Integration tests use `PRISM_TEST_DATABASE_URL` (default
-`postgresql+asyncpg://prism:prism-test@localhost/prism_test`) and Redis db 15;
-both are wiped on every run. Tests marked `model` run the real detector code
-on a tiny randomly initialised checkpoint, so they need the `worker` extra but
-no GPU.
+Integration tests use a throwaway database (`PRISM_TEST_DATABASE_URL`) and
+Redis db 15. Tests marked `model` run the real detector code on a tiny random
+checkpoint, so they need the `worker` extra but no GPU.
 
 ## Limitations
 
-- Everything is inferred from pixels. There's no DOM, so no alt text, focus
-  order, ARIA or keyboard checks.
-- "Large text" for contrast is guessed from box height; bold 14pt text is
-  treated as normal text.
-- The label check is layout-based: a heading right above an unlabeled input
-  looks like its label.
-- Detection is measured on synthetic pages only; real screenshots are next.
-- The current prompt folds form labels into their inputs, so the visible-label
-  check over-reports end to end (see eval/README.md).
+- Everything comes from pixels. No DOM means no alt text, focus order, ARIA
+  or keyboard checks.
+- Large text for contrast is guessed from box height; bold 14 pt text counts
+  as normal text.
+- The label check works from layout, so a heading directly above an unlabeled
+  input reads as its label.
+- Prompt v2 folds form labels into their inputs, which makes the label check
+  over-report end to end.
+- Detection has only been measured on synthetic pages so far.
 
-## License
-
-MIT
+More on the trade-offs: [docs/decisions.md](docs/decisions.md).
