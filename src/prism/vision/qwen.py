@@ -82,7 +82,7 @@ class QwenDetector:
         model_id: str,
         *,
         quant: Literal["nf4", "int8", "none"] = "nf4",
-        max_side: int = 1280,
+        max_side: int = 896,
         max_new_tokens: int = 2048,
         prompt: str = DEFAULT_PROMPT,
     ) -> None:

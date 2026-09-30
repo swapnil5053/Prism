@@ -2,7 +2,7 @@
 
     prism-eval synth  --out eval/data/synth --count 300
     prism-eval oracle --data eval/data/synth           # audit rules on true boxes (CPU)
-    prism-eval detect --data eval/data/synth --quant nf4 --max-side 1280   # needs a GPU
+    prism-eval detect --data eval/data/synth --quant nf4 --max-side 896   # needs a GPU
     prism-eval rescore --data eval/data/synth --pages eval/results/<run>.pages.jsonl
 
 Every command prints a Markdown table and writes a JSON summary to --results.
@@ -349,7 +349,7 @@ def main() -> None:
         if name == "detect":
             p.add_argument("--model", default="Qwen/Qwen2.5-VL-3B-Instruct")
             p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
-            p.add_argument("--max-side", type=int, default=1280)
+            p.add_argument("--max-side", type=int, default=896)
             p.add_argument("--max-new-tokens", type=int, default=2048)
             p.add_argument("--prompt", choices=["v1", "v2"], default="v2")
 
