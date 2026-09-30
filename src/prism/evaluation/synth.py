@@ -187,13 +187,14 @@ def _form(rng: random.Random, p: Palette) -> str:
 def _cards(rng: random.Random, p: Palette) -> str:
     cards = []
     for _ in range(rng.randint(2, 3)):
-        card_bg = tuple(min(255, c + rng.randint(-10, 10)) for c in p.page)
+        r, g, b = (min(255, c + rng.randint(-10, 10)) for c in p.page)
+        card_bg = (r, g, b)
         cards.append(
-            f'<div style="background:{_hex(card_bg)};border:1px solid #ccc;border-radius:8px;'  # type: ignore[arg-type]
+            f'<div style="background:{_hex(card_bg)};border:1px solid #ccc;border-radius:8px;'
             f'padding:12px;margin:8px;width:220px">'
             f'<div data-kind="image" style="height:{rng.randint(60, 100)}px;'
             f'background:{_hex(p.accent)};opacity:.35;border-radius:4px"></div>'
-            f"{_text(rng, card_bg, rng.choice([13, 15, 18]), _words(rng, 2, 3))}<br>"  # type: ignore[arg-type]
+            f"{_text(rng, card_bg, rng.choice([13, 15, 18]), _words(rng, 2, 3))}<br>"
             f"{_button(rng, p)}</div>"
         )
     return (
@@ -249,7 +250,8 @@ def _css_rgb(value: str) -> str | None:
         return None
     if len(nums) == 4 and float(nums[3]) == 0:
         return None
-    return _hex(tuple(round(float(n)) for n in nums[:3]))  # type: ignore[arg-type]
+    r, g, b = (round(float(n)) for n in nums[:3])
+    return _hex((r, g, b))
 
 
 def generate(out: Path, count: int, seed: int, chromium: str | None = None) -> None:
