@@ -1,5 +1,5 @@
 import asyncio
-from logging.config import fileConfig
+import logging
 
 from alembic import context
 from sqlalchemy.engine import Connection
@@ -9,8 +9,9 @@ from prism.config import get_settings
 from prism.db.models import Base
 
 config = context.config
-if config.config_file_name is not None and config.attributes.get("configure_logger", True):
-    fileConfig(config.config_file_name)
+if config.attributes.get("configure_logger", True):
+    logging.basicConfig(level=logging.INFO, format="%(levelname)-5.5s [%(name)s] %(message)s")
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 
 target_metadata = Base.metadata
 

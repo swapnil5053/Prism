@@ -25,8 +25,8 @@ TEST_REDIS = os.environ.get("PRISM_TEST_REDIS_URL", "redis://localhost:6379/15")
 
 @pytest.fixture(scope="session")
 def migrated_db() -> Iterator[str]:
-    cfg = Config(str(ROOT / "alembic.ini"))
-    cfg.set_main_option("script_location", str(ROOT / "migrations"))
+    cfg = Config()
+    cfg.set_main_option("script_location", str(ROOT / "src/prism/db/migrations"))
     cfg.attributes["database_url"] = TEST_DB
     cfg.attributes["configure_logger"] = False
     try:
