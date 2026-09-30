@@ -82,6 +82,9 @@ Rule scores match each finding to ground truth by location.
 | Qwen2.5-VL-3B | 896 | v1 | 60 | 0.632 | 0.272 | 0.188 | 0.728 | 0.186 | 2.6 GB |
 | Qwen2.5-VL-7B | 1280 | v1 | 40 | 0.682 | 0.338 | 0.273 | 0.683 | 0.400 | 6.7 GB |
 | **Qwen2.5-VL-3B** | **896** | **v2** | 60 | 0.638 | **0.449** | **0.713** | 0.681 | 0.187 | 2.6 GB |
+| Qwen2.5-VL-3B | 896 | v3 | 60 | 0.581 | 0.389 | 0.624 | 0.586 | 0.183 | 2.7 GB |
+| Qwen2.5-VL-7B | 896 | v2 | 60 | 0.520 | 0.434 | 0.537 | 0.577 | 0.205 | 6.3 GB |
+| Qwen2.5-VL-7B | 896 | v3 | 60 | 0.512 | 0.434 | 0.521 | 0.546 | 0.299 | 6.3 GB |
 
 Mean IoU of matched boxes is about 0.80 in every run.
 
@@ -98,14 +101,21 @@ What the runs showed:
   image tokens, and these pages don't have detail that needs more.
 - **7B finds more** (box F1 0.68, and far better on inputs: 0.64 vs 0.36) but
   was only run with prompt v1, on 40 pages. It fits in 8 GB at 6.7 GB peak.
-- **Prompt v2 made the label check worse.** It told the model that words on a
-  button are part of the button, and the model applied that to inputs and
-  checkboxes too, folding their labels into the control. With fewer separate
-  label elements, the visible-label rule reports labels as missing (precision
-  0.12). That's the next prompt change.
+- **The label check is weak end to end** (F1 around 0.2 on 3B). It needs both
+  the input and its label text to be detected, and the models miss a lot of
+  small text: in the v2 run 144 of 248 text elements weren't found at all.
+- **Prompt v3 didn't fix it.** v3 asked for form labels as separate text. On
+  3B the longer prompt made the model list fewer elements (9 per page against
+  16 real ones), so every score dropped and the label check stayed at 0.18.
+  On 7B it helped inputs (F1 0.33 → 0.51) and the label check (0.21 → 0.30),
+  but not enough to change the default.
+- **7B seems to need the higher resolution.** At 1280 px (prompt v1) its box
+  F1 was 0.68; at 896 px it scored 0.52 with both v2 and v3, and on 5 of 60
+  pages it repeated the same element until it hit the 2048-token limit. A 7B
+  run at 1280 px with v2 would separate the effect of resolution from prompt.
 
-Default config: Qwen2.5-VL-3B, NF4, 896 px, prompt v2. It has the best
-end-to-end target-size score and uses a third of the memory of 7B.
+Default config: Qwen2.5-VL-3B, NF4, 896 px, prompt v2. It has the best box
+and target-size scores of every run and uses under half the memory of 7B.
 
 Speed: 3B generates about 370-410 tokens per page. Throughput varied between
 runs on the same model (5.7 to 13.9 tokens/s) with similar output lengths, so the

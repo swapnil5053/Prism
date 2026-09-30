@@ -161,8 +161,9 @@ checkpoint, so they need the `worker` extra but no GPU.
   as normal text.
 - The label check works from layout, so a heading directly above an unlabeled
   input reads as its label.
-- Prompt v2 folds form labels into their inputs, which makes the label check
-  over-report end to end.
+- The visible-label check is weak end to end (F1 about 0.2): it needs the
+  detector to find both the input and its label, and small text is often
+  missed. A prompt aimed at this (v3) didn't help on the 3B model.
 - Detection has only been measured on synthetic pages so far.
 
 More on the trade-offs: [docs/decisions.md](docs/decisions.md).

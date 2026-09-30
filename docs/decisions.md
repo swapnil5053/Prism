@@ -32,6 +32,10 @@ label means and where its box goes. On the same 60 pages, label F1 went from
 placement and labels separately is what made the problem visible; a single
 strict score just looked uniformly bad.
 
+A third prompt tried to keep form labels as separate text for the label
+check. It made the 3B model list fewer elements overall and scored lower on
+everything, so v2 stays the default and v3 is kept for comparison.
+
 ## Contrast from pixels
 
 Pixels inside a text box are split into two clusters. The bigger one is the
