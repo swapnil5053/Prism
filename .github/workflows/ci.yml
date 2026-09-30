@@ -25,8 +25,8 @@ jobs:
         image: redis:7-alpine
         ports: ["6379:6379"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv sync --frozen --extra eval
@@ -40,12 +40,12 @@ jobs:
     # Real QwenDetector code on a tiny random checkpoint (CPU), plus mypy with torch installed.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-      - run: uv sync --frozen --extra worker
-      - run: uv run --extra worker mypy
+      - run: uv sync --frozen --extra worker --extra eval
+      - run: uv run --extra worker --extra eval mypy
       - run: uv run --extra worker pytest -m model
 
   web:
@@ -54,8 +54,8 @@ jobs:
       run:
         working-directory: web
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -68,22 +68,22 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # The worker image is several GB of CUDA libraries; it's built locally, not in CI.
       - run: docker build -f deploy/api.Dockerfile -t prism-api .
 
   security:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - name: Python dependencies
         run: uv export --frozen --all-extras --no-hashes --no-emit-project > req.txt && uvx pip-audit -r req.txt
       - name: JS dependencies
         working-directory: web
         run: npm audit --audit-level=high
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
