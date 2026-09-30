@@ -33,18 +33,22 @@ browser ──upload──▶ FastAPI ──enqueue──▶ Redis ──▶ GPU
 
 ## Results
 
-Measured on 300 synthetic pages with exact labels, held out from the pages
-used while developing the rules ([details](eval/README.md)):
+On 300 synthetic pages with exact labels, held out from the pages used while
+developing the rules ([details](eval/README.md)).
 
-| Check (on true boxes) | Precision | Recall |
+The checks, given correct boxes:
+
+| Check | Precision | Recall |
 |---|---|---|
-| Text contrast | 0.870 | 0.931 |
-| Target size | 1.000 | 1.000 |
-| Visible label | 1.000 | 0.748 |
+| Text contrast (1.4.3) | 0.870 | 0.931 |
+| Target size (2.5.8) | 1.000 | 1.000 |
+| Visible label (3.3.2) | 1.000 | 0.748 |
 
-Contrast estimates are within 4.1% of the true ratio at the median, and the
-pass/fail call at 4.5:1 agrees with the truth 99.5% of the time outside a ±10%
-band around the threshold.
+End to end with the default detector (Qwen2.5-VL-3B, 4-bit, 60 pages, RTX 4060
+Laptop): boxes found at F1 0.64 (mean IoU 0.80), target-size findings at F1
+0.71, contrast findings at F1 0.68, 2.6 GB peak VRAM, 25-70 s per
+screenshot. A second prompt that defines each element type raised label
+accuracy from F1 0.27 to 0.45 and target-size F1 from 0.19 to 0.71.
 
 ## Running it
 
@@ -88,7 +92,9 @@ no GPU.
   treated as normal text.
 - The label check is layout-based: a heading right above an unlabeled input
   looks like its label.
-- The detection benchmark on real screenshots hasn't been run yet.
+- Detection is measured on synthetic pages only; real screenshots are next.
+- The current prompt folds form labels into their inputs, so the visible-label
+  check over-reports end to end (see eval/README.md).
 
 ## License
 

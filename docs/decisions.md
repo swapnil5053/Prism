@@ -22,6 +22,16 @@ arrays), validated with Pydantic, and rendered with `textContent` in the
 browser and escaped in reports. Text inside a screenshot can say anything,
 including instructions to the model, but the output is only ever data.
 
+## Prompt
+
+The first prompt listed the labels and nothing else. Boxes came back in the
+right places (mean IoU 0.8) but links and most buttons were labelled "text",
+which quietly disabled the target-size check. The second prompt says what each
+label means and where its box goes. On the same 60 pages, label F1 went from
+0.27 to 0.45 and end-to-end target-size F1 from 0.19 to 0.71. Measuring box
+placement and labels separately is what made the problem visible; a single
+strict score just looked uniformly bad.
+
 ## Contrast from pixels
 
 Pixels inside a text box are split into two clusters. The bigger one is the
