@@ -23,6 +23,7 @@ from prism.a11y.contrast import LARGE_TEXT, NORMAL_TEXT, contrast_ratio, estimat
 from prism.a11y.target_size import MIN_CSS_PX
 from prism.domain import Element, ElementKind, Finding
 from prism.vision.parse import parse_elements
+from prism.vision.prompts import DEFAULT_PROMPT, PROMPTS
 
 from .dataset import Page, load
 from .metrics import Counts, DetectionScore, match, percentile
@@ -173,7 +174,7 @@ def detect(
     max_side: int,
     pages_log: Path | None = None,
     max_new_tokens: int = 2048,
-    prompt: str = "v2",
+    prompt: str = DEFAULT_PROMPT,
 ) -> dict[str, Any]:
     import torch
 
@@ -351,7 +352,7 @@ def main() -> None:
             p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
             p.add_argument("--max-side", type=int, default=896)
             p.add_argument("--max-new-tokens", type=int, default=2048)
-            p.add_argument("--prompt", choices=["v1", "v2"], default="v2")
+            p.add_argument("--prompt", choices=sorted(PROMPTS), default=DEFAULT_PROMPT)
 
     args = parser.parse_args()
     if args.cmd == "synth":

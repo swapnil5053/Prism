@@ -105,3 +105,13 @@ def test_text_is_cleaned_not_trusted() -> None:
 
 def test_non_list_json() -> None:
     assert parse_elements('{"bbox_2d": [0, 0, 1, 1]}', 100, 100).elements == []
+
+
+def test_prompts_share_the_output_format() -> None:
+    from prism.vision.prompts import DEFAULT_PROMPT, PROMPTS
+
+    assert DEFAULT_PROMPT in PROMPTS
+    for text in PROMPTS.values():
+        assert "bbox_2d" in text
+        for kind in ElementKind:
+            assert kind.value in text

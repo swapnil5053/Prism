@@ -24,36 +24,9 @@ from prism.domain import Element
 
 from .base import DetectionCanceled
 from .parse import ParseResult, parse_elements
+from .prompts import DEFAULT_PROMPT, PROMPTS
 
 log = logging.getLogger(__name__)
-
-# v1 gave good boxes but called most links and buttons "text" (see eval/README.md).
-# v2 defines each label and says where the box goes.
-PROMPTS = {
-    "v1": (
-        "Detect every user interface element in this screenshot. "
-        'Output a JSON array only. Each item: {"bbox_2d": [x1, y1, x2, y2], '
-        '"label": one of "button", "link", "input", "checkbox", "icon", "text", "image", '
-        '"text": the visible text, or "" if none}. '
-        "Use one item per element. Do not group several elements into one box."
-    ),
-    "v2": (
-        "List every user interface element in this screenshot as a JSON array. "
-        'Each item: {"bbox_2d": [x1, y1, x2, y2], "label": ..., "text": visible text or ""}.\n'
-        "Labels:\n"
-        "- button: a clickable control drawn with its own background or border. "
-        "Box the whole button shape, not just the words on it.\n"
-        "- link: clickable text without a button shape, such as items in a navigation bar.\n"
-        "- input: a text field or dropdown, even if it is empty. Box the whole field.\n"
-        "- checkbox: a checkbox, radio button or switch.\n"
-        "- icon: a small symbol that can be clicked, such as a close, menu or settings icon.\n"
-        "- image: a photo, illustration, logo, or a placeholder block where an image goes.\n"
-        "- text: any other text, such as headings, labels and paragraphs.\n"
-        "Words that belong to a button or link are part of it; don't list them again as text. "
-        "Output only the JSON array."
-    ),
-}
-DEFAULT_PROMPT = "v2"
 
 
 @dataclass
