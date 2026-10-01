@@ -87,6 +87,9 @@ Rule scores match each finding to ground truth by location.
 | Qwen2.5-VL-7B | 896 | v3 | 60 | 0.512 | 0.434 | 0.521 | 0.546 | 0.299 | 6.3 GB |
 | Qwen2.5-VL-7B | 1280 | v2 | 60 | 0.638 | **0.541** | 0.689 | **0.712** | 0.280 | 6.8 GB |
 
+These runs all take text from the model. Taking it from OCR instead, and
+then prompt v4, is covered below.
+
 Mean IoU of matched boxes is about 0.80 for 3B and 0.73-0.79 for 7B.
 
 What the runs showed:
@@ -147,7 +150,7 @@ the model (before → after):
 - Text F1 stops short of the OCR's recall because of precision: placeholder
   text inside an input the model missed is scored as extra text.
 - Target size and the label check barely move, because they depend on
-  controls, which still come from the model. In the default run, 25 of the
+  controls, which still come from the model. In the 3B v2 run, 25 of the
   59 false label findings are image placeholders the model called "input",
   and 17 of the 29 unlabeled controls were never detected.
 - The 7B model's advantage came mostly from reading more text. With OCR, 3B
@@ -156,25 +159,86 @@ the model (before → after):
 Raw numbers: [`results/detect-qwen25-3b-nf4-896-p2-ocr.json`](results/detect-qwen25-3b-nf4-896-p2-ocr.json),
 [`results/detect-qwen25-7b-nf4-1280-p2-ocr.json`](results/detect-qwen25-7b-nf4-1280-p2-ocr.json).
 
-Prompt v4 is written for this setup: it asks only for controls and images
-and leaves out the "text" field, so the model should generate far fewer
-tokens.
+### Prompt v4: controls only
+
+With OCR supplying the text, prompt v4 asks the model only for controls and
+images, without a "text" field. Run on the same 60 pages:
+
+| Model | Prompt | Boxes F1 | Boxes + labels F1 | Target size F1 | Contrast F1 | Label F1 | Output tokens |
+|---|---|---|---|---|---|---|---|
+| 3B, 896 px | v2 + OCR | 0.761 | 0.534 | **0.702** | 0.801 | 0.240 | 362 |
+| **3B, 896 px** | **v4 + OCR** | 0.764 | 0.495 | 0.686 | 0.797 | **0.341** | 303 |
+| 7B, 1280 px | v2 + OCR | 0.728 | 0.586 | 0.662 | 0.780 | 0.276 | 425 |
+| **7B, 1280 px** | **v4 + OCR** | **0.789** | **0.587** | 0.618 | **0.817** | **0.364** | 243 |
+
+(Output tokens: median per page from the timing runs below.)
+
+- **The label check finally moved**: 0.24 → 0.34 on 3B, 0.28 → 0.36 on 7B.
+  "Box only the field itself" plus no text to write made the input boxes fit:
+  input F1 went from 0.36 to 0.56 (3B) and 0.36 to 0.65 (7B), and false label
+  findings fell from 59 to 44 (3B) and 46 to 25 (7B).
+- **Target size dropped a little.** 7B lists fewer elements per page (7 against
+  12) and misses more links (F1 0.90 → 0.72); 3B lists as many items as before
+  but calls too many things buttons (243 against 147).
+- **Token savings depend on the model.** 7B dropped its text items and wrote
+  43% fewer tokens. 3B kept listing about 9 items a page and only saved the
+  text fields, 16% fewer tokens. Each item still costs about 32 tokens, mostly
+  digits: Qwen's tokenizer writes every digit of a coordinate as its own
+  token.
+
+v4 + OCR is now the default: it trades a little target-size F1 for a much
+better label check and less time per page.
+
+### Speed
+
+`prism-eval timing` runs the first 10 pages three times each after a warm-up
+page, times prefill and decoding separately, and samples the GPU's clock,
+power and temperature while each page runs. Windows, plugged in, power mode
+"Best performance":
+
+| Setup | Output tokens | Prefill | Decoding | Model | OCR | Per page |
+|---|---|---|---|---|---|---|
+| 3B, 896 px, v2 | 362 | 0.63 s | 15.5 tokens/s | 25.2 s | - | 25.2 s |
+| 3B, 896 px, v4 + OCR | 303 | 0.75 s | 15.0 tokens/s | 20.8 s | 1.1 s | 21.9 s |
+| 7B, 1280 px, v2 | 425 | 1.08 s | 19.6 tokens/s | 23.2 s | - | 23.2 s |
+| 7B, 1280 px, v4 + OCR | 243 | 1.11 s | 19.7 tokens/s | 13.6 s | 1.1 s | **14.7 s** |
+
+(Medians per page; repeats of the same page differed by 1.5-3.3%.)
+
+- **Decoding is 89-97% of the model's time.** Reading the image and the
+  prompt (prefill) takes about a second. The only real lever is how many
+  tokens the model writes, which is why v4 cuts 7B's time by 37%.
+- **7B decodes faster than 3B.** During the 3B runs the GPU drew 20-38 W
+  and didn't hold its top clock; during 7B it ran at 2.7 GHz and 55-73 W. So
+  the 3B runs leave the GPU waiting, which points at fixed per-token work
+  (Python in the generation loop, kernel launches, the 4-bit weights being
+  unpacked layer by layer) rather than the GPU itself. That work grows with
+  the number of layers, and 3B has more of them (36 against 28). Scaling 7B's
+  speed by 28/36 predicts 15.3 tokens/s for 3B; it measured 15.5. Capturing
+  the decode step in a CUDA graph is the usual fix for this kind of overhead
+  and the next thing to try.
+- **The machine has a slow mode.** The detect runs report latency too, but
+  the same setups decoded 2.7-5.6x slower there than in the timing runs a few
+  minutes later (3B v4: 5.6 against 15.0 tokens/s), and older logs show runs
+  switching between the two speeds midway with nothing changed. Since
+  decoding here is limited by the CPU side, Windows moving a background
+  process onto efficiency cores would explain it; that's a guess that hasn't
+  been tested. It is also what was behind the 5.7-13.9 tokens/s spread between
+  earlier runs. Speed claims in this repo come from the timing files only.
 
 ### Default config
 
-Qwen2.5-VL-3B, NF4, 896 px, prompt v2, text from OCR (`PRISM_DETECTOR_TEXT=ocr`).
-7B at 1280 px fits an 8 GB card and labels controls a little better:
+Qwen2.5-VL-3B, NF4, 896 px, prompt v4, text from OCR. It fits GPUs with 4 GB.
+On an 8 GB card, 7B at 1280 px is both more accurate on everything except
+target size and faster:
 
 ```bash
 PRISM_DETECTOR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct PRISM_DETECTOR_MAX_SIDE=1280 make worker
 ```
 
-Speed: 3B generates about 370-410 tokens per page. Throughput varied between
-runs on the same model (5.7 to 13.9 tokens/s) with similar output lengths, so the
-speed-up in the v2 run (24 s per page at the median) shouldn't be credited to
-the prompt. `prism-eval timing` is the controlled version: the same pages run
-several times after a warm-up, with prefill and decoding timed separately and
-the GPU's clock, power and temperature sampled during each page.
+All of the prompt and model comparisons above were made on the same 60 test
+pages, so the chosen setups are slightly flattered. `detect --skip 60` runs on
+pages none of these choices looked at.
 
 Reproduce with:
 
@@ -184,6 +248,8 @@ uv run prism-eval detect --data eval/data/synth-test --limit 60 --max-side 896 \
     --prompt v2 --results eval/results/detect-qwen25-3b-nf4-896-p2.json
 uv run prism-eval rescore --data eval/data/synth-test \
     --pages eval/results/detect-qwen25-3b-nf4-896-p2.pages.jsonl --text ocr
+uv run prism-eval detect --data eval/data/synth-test --limit 60 --max-side 896 \
+    --prompt v4 --text ocr --results eval/results/detect-qwen25-3b-nf4-896-p4-ocr.json
 uv run prism-eval timing --data eval/data/synth-test --pages 10 --repeats 3 \
     --prompt v4 --text ocr --results eval/results/timing-qwen25-3b-896-p4-ocr.json
 ```

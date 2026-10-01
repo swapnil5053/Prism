@@ -17,11 +17,10 @@ handles both and converts to [0, 1] of the original image before anything
 else sees them. The vision encoder stays in bf16; only the language model is
 quantised.
 
-The 7B model at 1280 px labels elements more accurately (box+label F1 0.54
-vs 0.45) and still fits an 8 GB card at 6.8 GB. Most of that lead was on
-text, though, and with OCR finding the text (below) the two are close: 7B is
-ahead on labels and the label check, 3B on boxes, target size and contrast.
-3B stays the default; it needs 2.6 GB. Switching is two environment variables.
+The 7B model at 1280 px is more accurate on everything but target size, and
+on this laptop it is also faster (see Speed below), at 6.8 GB of VRAM. 3B
+stays the default because it fits a 4 GB GPU. Switching is two environment
+variables.
 
 The output is treated as untrusted: parsed tolerantly (code fences, truncated
 arrays), validated with Pydantic, and rendered with `textContent` in the
@@ -62,13 +61,34 @@ contrast F1 on every one of the eight runs (3B v2: 0.64 to 0.76, and 0.68 to
 text: models call empty image placeholders "input", and miss more than half
 of the unlabeled inputs and checkboxes.
 
-With OCR doing the text, the VLM no longer needs to write it out. Generation
-is where the time goes, so prompt v4 asks only for controls and images and
-drops the "text" field, which should cut output tokens substantially.
+With OCR doing the text, the VLM no longer needs to write it out, so prompt
+v4 asks only for controls and images and drops the "text" field. That also
+fixed input boxes ("box only the field itself" stuck once there were no
+labels to fold in): the label check rose from 0.24 to 0.34 on 3B and 0.28 to
+0.36 on 7B, for a small loss on target size. v4 with OCR is the default.
 
 rapidocr depends on the desktop OpenCV build, which needs libGL at import
 and would break the slim worker image. A uv override swaps in the headless
 build, which provides the same `cv2` module.
+
+## Speed
+
+Timed with repeated runs after a warm-up (`prism-eval timing`), decoding is
+89-97% of the model's time, so the number of output tokens decides the
+latency. 7B with v4 writes 43% fewer tokens than with v2 and takes 15 s a
+page instead of 23 s, OCR included.
+
+The surprise was that 7B decodes faster than 3B (19.7 against 15.5 tokens/s).
+The GPU draws 20-38 W during 3B runs and 55-73 W during 7B, so with the small
+model it spends time waiting on fixed per-token work on the CPU side rather
+than on arithmetic. That work grows with layer count, and 3B has 36 layers to
+7B's 28; scaling by 28/36 predicts 3B's speed within 2%. The fix would be to
+capture the decode step as a CUDA graph (static KV cache plus torch.compile),
+which isn't done yet: it needs Triton, which is awkward on Windows.
+
+The same laptop also has a slow mode, 2.7-5.6x slower, that came and went
+between and during runs. Only the timing runs, made back to back in one
+session, are used for speed claims.
 
 ## Contrast from pixels
 

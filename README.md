@@ -84,23 +84,30 @@ Full tables and method: [eval/README.md](eval/README.md).
 
 **End to end with the detector** (4-bit NF4, 60 pages, RTX 4060 Laptop):
 
-| | 3B, prompt v1 | 3B, prompt v2 | 3B, v2 + OCR text (default) | 7B at 1280 px, v2 + OCR text |
+| | 3B, prompt v1 | 3B, prompt v2 | 3B, v4 + OCR (default) | 7B at 1280 px, v4 + OCR |
 |---|---|---|---|---|
-| Element boxes found (F1) | 0.63 | 0.64 | 0.76 | 0.73 |
-| Boxes with correct type (F1) | 0.27 | 0.45 | 0.53 | 0.59 |
-| Target-size findings (F1) | 0.19 | 0.71 | 0.70 | 0.66 |
-| Contrast findings (F1) | 0.73 | 0.68 | 0.80 | 0.78 |
-| Visible-label findings (F1) | 0.19 | 0.19 | 0.24 | 0.28 |
+| Element boxes found (F1) | 0.63 | 0.64 | 0.76 | 0.79 |
+| Boxes with correct type (F1) | 0.27 | 0.45 | 0.50 | 0.59 |
+| Target-size findings (F1) | 0.19 | 0.71 | 0.69 | 0.62 |
+| Contrast findings (F1) | 0.73 | 0.68 | 0.80 | 0.82 |
+| Visible-label findings (F1) | 0.19 | 0.19 | 0.34 | 0.36 |
+| Time per page | | 25 s | 22 s | 15 s |
 | Peak VRAM | 2.6 GB | 2.6 GB | 2.6 GB | 6.8 GB |
 
 Boxes were good from the start (mean IoU about 0.8), but the first prompt
 labelled most links and buttons as plain text, which switched off the
 target-size check. Scoring boxes and labels separately exposed it, and
 defining each label in the prompt fixed most of it. The next gap was small
-text: the model missed more than half of it. OCR finds 247 of 248 text
-elements, so text now comes from OCR and the model only has to handle
-controls, which lifted contrast F1 from 0.68 to 0.80. With OCR in place the
-7B model's lead mostly disappears, so 3B stays the default at 2.6 GB.
+text: the model missed more than half of it, while an OCR model finds 247 of
+248. So text now comes from OCR, and the VLM is only asked for controls
+(prompt v4). That lifted contrast from 0.68 to 0.80 and the label check from
+0.19 to 0.34.
+
+Generation is about 90% of the time, so writing fewer tokens is what makes it
+faster. 7B decodes faster per token than 3B on this laptop (the GPU sits
+partly idle with the smaller model), and with v4 it writes 43% fewer tokens,
+which makes it both the most accurate and the fastest setup if the GPU has
+8 GB. 3B stays the default because it fits in 4 GB.
 
 ## Project layout
 
@@ -170,8 +177,8 @@ checkpoint, so they need the `worker` extra but no GPU.
   as normal text.
 - The label check works from layout, so a heading directly above an unlabeled
   input reads as its label.
-- The visible-label check is weak end to end (F1 0.24 on 3B, 0.28 on 7B).
-  Text is no longer the problem; the models miss more than half of the
+- The visible-label check is still the weakest (F1 0.34 on 3B, 0.36 on 7B).
+  Text is no longer the problem: the models miss about half of the
   unlabeled inputs and checkboxes, and sometimes call an empty image
   placeholder an input.
 - Detection has only been measured on synthetic pages so far.
