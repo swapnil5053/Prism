@@ -127,3 +127,13 @@ def test_rescore_merges_saved_ocr_lines(tmp_path: Path) -> None:
     assert with_ocr["detection"]["boxes_any_label"]["tp"] == 3
     assert with_ocr["rules_end_to_end"]["text-contrast"]["tp"] == 1
     assert with_ocr["text_source"] == "ocr"
+
+
+def test_load_skip_and_limit_select_a_slice(tmp_path: Path) -> None:
+    write_page(tmp_path)
+    row = (tmp_path / "labels.jsonl").read_text()
+    (tmp_path / "labels.jsonl").write_text(
+        "".join(row.replace('"p.png"', f'"p{i}.png"') for i in range(5))
+    )
+    assert [p.image.name for p in load(tmp_path, limit=2, skip=3)] == ["p3.png", "p4.png"]
+    assert [p.image.name for p in load(tmp_path, skip=4)] == ["p4.png"]

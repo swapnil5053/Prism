@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,10 +31,10 @@ class Settings(BaseSettings):
     detector_quant: Literal["nf4", "int8", "none"] = "nf4"
     # Longest image side fed to the model. Bigger finds small icons but costs VRAM and time.
     detector_max_side: int = Field(default=896, ge=448, le=2048)
-    detector_prompt: Literal["v1", "v2", "v3", "v4"] = "v2"
-    # "ocr": text lines come from OCR and the VLM's text items are dropped
-    # (vision/hybrid.py). "model": the VLM finds text too.
+    # "ocr": text lines come from OCR and the VLM only finds controls
+    # (vision/hybrid.py). "model": the VLM finds text too; use prompt v2 with it.
     detector_text: Literal["ocr", "model"] = "ocr"
+    detector_prompt: Literal["v1", "v2", "v3", "v4"] = "v4"
     job_timeout_s: int = Field(default=300, gt=0)
 
     # Pillow's own bomb guard trips at ~89M pixels; screenshots never need that many.
@@ -46,6 +46,14 @@ class Settings(BaseSettings):
         if len(value.get_secret_value()) < 32:
             raise ValueError("PRISM_SECRET_KEY must be at least 32 characters")
         return value
+
+    @model_validator(mode="after")
+    def _prompt_fits_text_source(self) -> "Settings":
+        if self.detector_prompt == "v4" and self.detector_text == "model":
+            raise ValueError(
+                "prompt v4 doesn't ask the model for text; use it with detector_text=ocr"
+            )
+        return self
 
     @property
     def max_upload_bytes(self) -> int:

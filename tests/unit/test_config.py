@@ -26,6 +26,19 @@ def test_reads_prefixed_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_detector_defaults_use_ocr_for_text() -> None:
     s = Settings(database_url=DB, secret_key="k" * 32, _env_file=None)
-    assert (s.detector_text, s.detector_prompt) == ("ocr", "v2")
+    assert (s.detector_text, s.detector_prompt) == ("ocr", "v4")
     with pytest.raises(ValidationError):
         Settings(database_url=DB, secret_key="k" * 32, detector_prompt="v9", _env_file=None)
+
+
+def test_text_free_prompt_needs_ocr() -> None:
+    with pytest.raises(ValidationError, match="detector_text=ocr"):
+        Settings(database_url=DB, secret_key="k" * 32, detector_text="model", _env_file=None)
+    s = Settings(
+        database_url=DB,
+        secret_key="k" * 32,
+        detector_text="model",
+        detector_prompt="v2",
+        _env_file=None,
+    )
+    assert s.detector_prompt == "v2"

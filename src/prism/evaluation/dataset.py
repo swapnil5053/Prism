@@ -36,10 +36,13 @@ def _rgb(value: str | None) -> tuple[int, int, int] | None:
     return (int(v[0:2], 16), int(v[2:4], 16), int(v[4:6], 16))
 
 
-def load(root: Path, limit: int | None = None) -> Iterator[Page]:
+def load(root: Path, limit: int | None = None, skip: int = 0) -> Iterator[Page]:
+    """Pages in file order. skip/limit select a slice, e.g. pages not yet looked at."""
     with (root / "labels.jsonl").open(encoding="utf-8") as fh:
         for n, line in enumerate(fh):
-            if limit is not None and n >= limit:
+            if n < skip:
+                continue
+            if limit is not None and n >= skip + limit:
                 return
             row = json.loads(line)
             elements = []

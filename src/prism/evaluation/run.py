@@ -294,6 +294,9 @@ def main() -> None:
         p.add_argument("--data", type=Path, required=True)
         p.add_argument("--limit", type=int)
         p.add_argument("--results", type=Path)
+    sub.choices["detect"].add_argument(
+        "--skip", type=int, default=0, help="start after this many pages (held-out runs)"
+    )
     for p in (sub.choices["detect"], t):
         p.add_argument("--model", default="Qwen/Qwen2.5-VL-3B-Instruct")
         p.add_argument("--quant", choices=["nf4", "int8", "none"], default="nf4")
@@ -349,8 +352,10 @@ def main() -> None:
             args.max_new_tokens,
             args.prompt,
             args.text,
+            args.skip,
         )
-    summary["dataset"] = str(args.data)
+    summary["dataset"] = args.data.as_posix()
+
     print(_markdown({k: v for k, v in summary.items() if k != "runs"}))
     if args.results:
         args.results.parent.mkdir(parents=True, exist_ok=True)

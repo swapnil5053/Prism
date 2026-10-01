@@ -62,4 +62,6 @@ PROMPTS = {
         "Output only the JSON array."
     ),
 }
+# Default when the model also finds text (the eval CLI's --text model). The worker
+# defaults to v4 with OCR text; see config.py.
 DEFAULT_PROMPT = "v2"

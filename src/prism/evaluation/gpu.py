@@ -32,6 +32,7 @@ def detect(
     max_new_tokens: int = 2048,
     prompt: str = DEFAULT_PROMPT,
     text: str = "model",
+    skip: int = 0,
 ) -> dict[str, Any]:
     import torch
 
@@ -52,10 +53,10 @@ def detect(
     score = PipelineScore()
     latencies: list[float] = []
     valid = truncated = hit_limit = pages = errors = 0
-    total = sum(1 for _ in load(data, limit))
+    total = sum(1 for _ in load(data, limit, skip))
     log = pages_log.open("w", encoding="utf-8") if pages_log else None
     try:
-        for page in load(data, limit):
+        for page in load(data, limit, skip):
             with Image.open(page.image) as img:
                 image = img.convert("RGB")
             started = time.perf_counter()
@@ -109,6 +110,7 @@ def detect(
     return {
         "model": detector.version,
         "text_source": text,
+        "first_page": skip,
         "pages": pages,
         "pages_out_of_memory": errors,
         "valid_json_rate": round(valid / pages, 3) if pages else None,
