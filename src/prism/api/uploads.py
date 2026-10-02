@@ -16,6 +16,9 @@ from pathlib import Path, PureWindowsPath
 
 from fastapi import UploadFile
 from PIL import Image, UnidentifiedImageError
+from starlette.exceptions import HTTPException
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 # Pillow format name -> extension we store it under.
 ALLOWED_FORMATS = {"PNG": "png", "JPEG": "jpg", "WEBP": "webp"}
@@ -36,6 +39,43 @@ class StoredImage:
     key: str
     width: int
     height: int
+
+
+class BodySizeLimit:
+    """Refuse request bodies over max_bytes before they are read.
+
+    Starlette spools multipart file parts to disk with no size cap, and FastAPI
+    parses the form before the route runs, so without this a multi-GB upload
+    would land on disk before read_limited ever saw it.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        detail = f"Request body is larger than {self.max_bytes // (1024 * 1024)} MB"
+        length = dict(scope["headers"]).get(b"content-length", b"")
+        if length.isdigit() and int(length) > self.max_bytes:
+            await JSONResponse({"detail": detail}, status_code=413)(scope, receive, send)
+            return
+
+        seen = 0
+
+        async def counted() -> Message:
+            # Chunked uploads have no Content-Length: count as the body arrives.
+            nonlocal seen
+            message = await receive()
+            if message["type"] == "http.request":
+                seen += len(message.get("body", b""))
+                if seen > self.max_bytes:
+                    raise HTTPException(413, detail)
+            return message
+
+        await self.app(scope, counted, send)
 
 
 async def read_limited(file: UploadFile, max_bytes: int) -> bytes:

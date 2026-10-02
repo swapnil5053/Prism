@@ -75,6 +75,33 @@ async def test_rejects_oversized_upload(client: AsyncClient) -> None:
     assert r.status_code == 413
 
 
+async def test_huge_body_is_refused_before_it_is_read(client: AsyncClient) -> None:
+    # Over the limit by Content-Length: refused without reading the body.
+    r = await client.post(
+        "/api/v1/analyses",
+        content=b"x" * (3 * 1024 * 1024),
+        headers={"content-type": "multipart/form-data; boundary=x"},
+    )
+    assert r.status_code == 413
+    assert "larger than" in r.json()["detail"]
+
+    # No Content-Length (chunked): refused once the count passes the limit.
+    async def chunks():  # type: ignore[no-untyped-def]
+        yield (
+            b'--x\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n'
+            b"Content-Type: image/png\r\n\r\n"
+        )
+        for _ in range(3):
+            yield b"x" * (1024 * 1024)
+
+    r = await client.post(
+        "/api/v1/analyses",
+        content=chunks(),
+        headers={"content-type": "multipart/form-data; boundary=x"},
+    )
+    assert r.status_code == 413
+
+
 async def test_rejects_non_image(client: AsyncClient) -> None:
     r = await upload(client, b"GIF89a but actually text", name="x.png")
     assert r.status_code == 422
@@ -167,7 +194,11 @@ async def test_device_pixel_ratio(client: AsyncClient) -> None:
     assert bad.status_code == 422
 
 
-async def test_upload_rate_limit(app: FastAPI, client: AsyncClient) -> None:
+async def test_upload_rate_limit(
+    app: FastAPI, client: AsyncClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Pin the clock so the three uploads can't straddle an hourly window boundary.
+    monkeypatch.setattr("prism.api.ratelimit.time.time", lambda: 1_800_000_000.0)
     app.state.settings = app.state.settings.model_copy(update={"uploads_per_hour": 2})
     assert (await upload(client)).status_code == 201
     assert (await upload(client)).status_code == 201

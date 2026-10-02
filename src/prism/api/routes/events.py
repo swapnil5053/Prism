@@ -3,6 +3,7 @@ import contextlib
 import re
 import time
 import uuid
+from collections import Counter
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
@@ -17,6 +18,10 @@ from ..workspace import COOKIE_NAME, verify
 router = APIRouter()
 
 READ_BLOCK_MS = 10_000
+# Each open socket holds a Redis connection in a blocking read, so one visitor
+# can't be allowed an unbounded number. Per API process.
+MAX_SOCKETS_PER_WORKSPACE = 8
+_open_sockets: Counter[uuid.UUID] = Counter()
 _EVENT_ID = re.compile(r"^\d{1,20}-\d{1,20}$")
 
 
@@ -33,7 +38,6 @@ async def analysis_events(ws: WebSocket, analysis_id: uuid.UUID, after: str = "0
     """Stream progress events. Reconnect with ?after=<last id> to resume."""
     settings: Settings = ws.app.state.settings
     sessions = ws.app.state.sessionmaker
-    redis = ws.app.state.queue
 
     workspace_id = verify(ws.cookies.get(COOKIE_NAME), settings.secret_key.get_secret_value())
     async with sessions() as session:
@@ -46,6 +50,24 @@ async def analysis_events(ws: WebSocket, analysis_id: uuid.UUID, after: str = "0
     ):
         await ws.close(code=status.WS_1008_POLICY_VIOLATION)
         return
+    if _open_sockets[workspace_id] >= MAX_SOCKETS_PER_WORKSPACE:
+        await ws.close(code=status.WS_1013_TRY_AGAIN_LATER)
+        return
+
+    _open_sockets[workspace_id] += 1
+    try:
+        await _stream(ws, analysis, after)
+    finally:
+        _open_sockets[workspace_id] -= 1
+        if not _open_sockets[workspace_id]:
+            del _open_sockets[workspace_id]
+
+
+async def _stream(ws: WebSocket, analysis: Analysis, after: str) -> None:
+    settings: Settings = ws.app.state.settings
+    sessions = ws.app.state.sessionmaker
+    redis = ws.app.state.queue
+    analysis_id = analysis.id
 
     await ws.accept()
     if analysis.status.is_terminal and not await redis.exists(events.stream_key(analysis_id)):
@@ -90,8 +112,6 @@ async def _send_snapshot(ws: WebSocket, analysis: Analysis) -> None:
 async def _wait_for_disconnect(ws: WebSocket) -> None:
     # Clients don't send us anything; this just notices when they leave.
     # Leaving does not cancel the job (a page refresh shouldn't throw away work).
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        return
+    with contextlib.suppress(WebSocketDisconnect):
+        while (await ws.receive())["type"] != "websocket.disconnect":
+            pass

@@ -15,6 +15,7 @@ from prism.config import Settings, get_settings
 from prism.db.session import make_engine, make_sessionmaker
 
 from .routes import analyses, events, health
+from .uploads import BodySizeLimit
 
 log = logging.getLogger(__name__)
 
@@ -47,12 +48,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="Prism", version=__version__, lifespan=lifespan)
     app.state.settings = settings
 
+    # Added first, so it sits inside the middleware below and its 413s get the
+    # usual headers. 1 MB on top of the file limit covers the multipart framing.
+    app.add_middleware(BodySizeLimit, max_bytes=settings.max_upload_bytes + 1024 * 1024)
     if settings.cors_origins:
         app.add_middleware(
             CORSMiddleware,
             allow_origins=settings.cors_origins,
             allow_credentials=True,
-            allow_methods=["GET", "POST", "DELETE"],
+            allow_methods=["GET", "POST"],
             allow_headers=["Content-Type"],
         )
 
@@ -62,7 +66,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> Response:
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex
         # Only accept ids that look like ours, so log lines can't be forged.
-        if len(rid) > 64 or not rid.isalnum():
+        if len(rid) > 64 or not (rid.isascii() and rid.isalnum()):
             rid = uuid.uuid4().hex
         request.state.request_id = rid
         response = await call_next(request)
