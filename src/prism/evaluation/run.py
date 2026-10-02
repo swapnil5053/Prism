@@ -4,6 +4,7 @@
     prism-eval oracle --data eval/data/synth           # audit rules on true boxes (CPU)
     prism-eval detect --data eval/data/synth --quant nf4 --max-side 896   # needs a GPU
     prism-eval rescore --data eval/data/synth --pages eval/results/<run>.pages.jsonl
+    prism-eval compare --data eval/data/synth --a <run>.pages.jsonl --b <other>.pages.jsonl
     prism-eval timing --data eval/data/synth --pages 10 --repeats 3    # needs a GPU
 
 Every command prints a Markdown table and writes a JSON summary to --results.
@@ -11,6 +12,7 @@ Every command prints a Markdown table and writes a JSON summary to --results.
 
 import argparse
 import json
+import random
 import statistics
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -167,39 +169,54 @@ class PipelineScore:
         }
 
 
-def rescore(data: Path, pages_log: Path, frame: str, text: str = "model") -> dict[str, Any]:
-    """Re-parse and re-score a saved detect run with the current code. No GPU.
+def _logged_elements(
+    rec: dict[str, Any], image: Image.Image, frame: str, text: str, reader: Any
+) -> tuple[list[Element], bool, Any]:
+    """Elements for one logged page: the model's parsed output, plus OCR text if asked.
 
-    With text="ocr", uses the OCR lines saved in the log, or runs OCR (CPU) on
-    pages logged without them.
+    Uses the OCR lines saved in the log, or runs OCR (CPU) on pages logged
+    without them. Returns the elements, whether the JSON was valid, and the
+    OCR reader (created on first use).
     """
+    w, h = (1000, 1000) if frame == "1000" else rec["input_size"]
+    parsed = parse_elements(rec["raw"], w, h)
+    elements = parsed.elements
+    if text == "ocr":
+        if "ocr" in rec:
+            lines = [_line_from_record(i, r) for i, r in enumerate(rec["ocr"])]
+        else:
+            reader = reader or ocr_reader()
+            lines = reader.read(image)
+        elements = merge(elements, lines)
+    return elements, parsed.valid_json, reader
+
+
+def _records(logs: list[Path]) -> list[dict[str, Any]]:
+    out = []
+    for log in logs:
+        with log.open(encoding="utf-8") as fh:
+            out += [json.loads(line) for line in fh]
+    return out
+
+
+def rescore(data: Path, pages_log: Path, frame: str, text: str = "model") -> dict[str, Any]:
+    """Re-parse and re-score a saved detect run with the current code. No GPU."""
     pages = {p.image.name: p for p in load(data)}
     reader = None
     score = PipelineScore()
     latencies: list[float] = []
     tokens: list[float] = []
     valid = n = 0
-    with pages_log.open(encoding="utf-8") as fh:
-        for line in fh:
-            rec = json.loads(line)
-            page = pages[rec["image"]]
-            w, h = (1000, 1000) if frame == "1000" else rec["input_size"]
-            parsed = parse_elements(rec["raw"], w, h)
-            with Image.open(page.image) as img:
-                image = img.convert("RGB")
-            elements = parsed.elements
-            if text == "ocr":
-                if "ocr" in rec:
-                    lines = [_line_from_record(i, r) for i, r in enumerate(rec["ocr"])]
-                else:
-                    reader = reader or ocr_reader()
-                    lines = reader.read(image)
-                elements = merge(elements, lines)
-            score.add(page, image, elements)
-            latencies.append(rec["seconds"])
-            tokens.append(rec["new_tokens"])
-            valid += parsed.valid_json
-            n += 1
+    for rec in _records([pages_log]):
+        page = pages[rec["image"]]
+        with Image.open(page.image) as img:
+            image = img.convert("RGB")
+        elements, ok, reader = _logged_elements(rec, image, frame, text, reader)
+        score.add(page, image, elements)
+        latencies.append(rec["seconds"])
+        tokens.append(rec["new_tokens"])
+        valid += ok
+        n += 1
     return {
         "source": str(pages_log),
         "text_source": text,
@@ -211,6 +228,77 @@ def rescore(data: Path, pages_log: Path, frame: str, text: str = "model") -> dic
         },
         "tokens_per_second": round(sum(tokens) / sum(latencies), 1) if latencies else None,
         **score.summary(),
+    }
+
+
+def compare(
+    data: Path,
+    a_logs: list[Path],
+    b_logs: list[Path],
+    text: str = "model",
+    resamples: int = 2000,
+    seed: int = 0,
+) -> dict[str, Any]:
+    """Paired comparison of two runs on the pages both of them logged.
+
+    F1 is pooled over pages, so its uncertainty is estimated by resampling
+    pages (with replacement) and scoring both runs on the same resample. The
+    interval is for b minus a; if it excludes 0, the difference isn't just
+    which pages happened to be in the set.
+    """
+    pages = {p.image.name: p for p in load(data)}
+    a_recs = {r["image"]: r for r in _records(a_logs)}
+    b_recs = {r["image"]: r for r in _records(b_logs)}
+    shared = sorted(a_recs.keys() & b_recs.keys())
+    reader = None
+    per_page: list[tuple[dict[str, Counts], dict[str, Counts]]] = []
+    tokens: dict[str, list[int]] = {"a": [], "b": []}
+    for name in shared:
+        page = pages[name]
+        with Image.open(page.image) as img:
+            image = img.convert("RGB")
+        both = []
+        for side, rec in (("a", a_recs[name]), ("b", b_recs[name])):
+            elements, _, reader = _logged_elements(rec, image, "pixels", text, reader)
+            s = PipelineScore()
+            s.add(page, image, elements)
+            both.append({"boxes": s.boxes, "boxes_and_labels": s.strict.overall, **s.rules})
+            tokens[side].append(rec["new_tokens"])
+        per_page.append((both[0], both[1]))
+
+    metrics = sorted({m for a, b in per_page for m in (*a, *b)})
+
+    def pooled(indices: list[int], side: int, metric: str) -> float:
+        total = Counts()
+        for i in indices:
+            c = per_page[i][side].get(metric)
+            if c is not None:
+                total.add(c)
+        return total.f1
+
+    rng = random.Random(seed)
+    everything = list(range(len(per_page)))
+    samples = [[rng.randrange(len(per_page)) for _ in everything] for _ in range(resamples)]
+    out: dict[str, Any] = {}
+    for m in metrics:
+        a_f1, b_f1 = pooled(everything, 0, m), pooled(everything, 1, m)
+        diffs = sorted(pooled(idx, 1, m) - pooled(idx, 0, m) for idx in samples)
+        lo, hi = percentile(diffs, 0.025), percentile(diffs, 0.975)
+        out[m] = {
+            "a_f1": round(a_f1, 3),
+            "b_f1": round(b_f1, 3),
+            "difference": round(b_f1 - a_f1, 3),
+            "ci95_low": round(lo, 3),
+            "ci95_high": round(hi, 3),
+        }
+    return {
+        "a": [str(p) for p in a_logs],
+        "b": [str(p) for p in b_logs],
+        "text_source": text,
+        "pages": len(shared),
+        "resamples": resamples,
+        "median_new_tokens": {k: statistics.median(v) if v else None for k, v in tokens.items()},
+        "f1": out,
     }
 
 
@@ -283,6 +371,16 @@ def main() -> None:
     r.add_argument("--text", choices=["model", "ocr"], default="model")
     r.add_argument("--results", type=Path)
 
+    c = sub.add_parser("compare", help="paired bootstrap comparison of two saved runs")
+    c.add_argument("--data", type=Path, required=True)
+    c.add_argument("--a", type=Path, nargs="+", required=True, help="baseline .pages.jsonl file(s)")
+    c.add_argument(
+        "--b", type=Path, nargs="+", required=True, help="candidate .pages.jsonl file(s)"
+    )
+    c.add_argument("--text", choices=["model", "ocr"], default="model")
+    c.add_argument("--resamples", type=int, default=2000)
+    c.add_argument("--results", type=Path)
+
     t = sub.add_parser("timing", help="profile where detection time goes (GPU)")
     t.add_argument("--data", type=Path, required=True)
     t.add_argument("--pages", type=int, default=10)
@@ -320,6 +418,8 @@ def main() -> None:
 
     if args.cmd == "oracle":
         summary = oracle(args.data, args.limit)
+    elif args.cmd == "compare":
+        summary = compare(args.data, args.a, args.b, args.text, args.resamples)
     elif args.cmd == "rescore":
         summary = rescore(args.data, args.pages, args.frame, args.text)
     elif args.cmd == "timing":

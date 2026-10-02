@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 from prism.evaluation.dataset import load
-from prism.evaluation.run import oracle, rescore, true_findings
+from prism.evaluation.run import compare, oracle, rescore, true_findings
 from prism.evaluation.synth import build_page
 
 
@@ -137,3 +137,27 @@ def test_load_skip_and_limit_select_a_slice(tmp_path: Path) -> None:
     )
     assert [p.image.name for p in load(tmp_path, limit=2, skip=3)] == ["p3.png", "p4.png"]
     assert [p.image.name for p in load(tmp_path, skip=4)] == ["p4.png"]
+
+
+def test_compare_is_paired_on_shared_pages(tmp_path: Path) -> None:
+    write_page(tmp_path)
+    record = {"image": "p.png", "seconds": 1.0, "input_size": [400, 200]}
+    icon = {"bbox_2d": [20, 120, 31, 131], "label": "icon"}
+    low_contrast = {"bbox_2d": [16, 16, 140, 42], "label": "text"}
+    a = tmp_path / "a.pages.jsonl"
+    b = tmp_path / "b.pages.jsonl"
+    a.write_text(json.dumps({**record, "new_tokens": 30, "raw": json.dumps([icon])}) + "\n")
+    # b also logged a page a never ran; it must be left out of the comparison.
+    b.write_text(
+        json.dumps({**record, "new_tokens": 50, "raw": json.dumps([icon, low_contrast])})
+        + "\n"
+        + json.dumps({**record, "image": "other.png", "new_tokens": 9, "raw": "[]"})
+        + "\n"
+    )
+    result = compare(tmp_path, [a], [b], resamples=50)
+    assert result["pages"] == 1
+    assert result["median_new_tokens"] == {"a": 30, "b": 50}
+    contrast = result["f1"]["text-contrast"]
+    assert (contrast["a_f1"], contrast["b_f1"]) == (0.0, 1.0)
+    # One page: every resample is that page, so the interval is the difference itself.
+    assert contrast["ci95_low"] == contrast["ci95_high"] == contrast["difference"] == 1.0
