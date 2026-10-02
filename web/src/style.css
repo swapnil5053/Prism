@@ -511,7 +511,6 @@ body.is-dragging .dropzone {
 [data-state="empty"] .drop-overlay {
   display: none !important;
 }
-.dz-title,
 .sm-title {
   font-size: 17px;
   font-weight: 600;
@@ -533,10 +532,6 @@ body.is-dragging .dropzone {
   color: var(--ink);
   font-size: 14px;
   font-weight: 600;
-}
-.dz-hint {
-  color: var(--ink-2);
-  font-size: 13px;
 }
 .dz-actions {
   display: flex;

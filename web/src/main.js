@@ -1,9 +1,10 @@
 import { cancelAnalysis, getAnalysis, listAnalyses, reportUrl, uploadScreenshot } from "./api.js";
-import { followAnalysis } from "./events.js";
+import { TERMINAL, followAnalysis } from "./events.js";
 import {
   RULES,
   contrastInfo,
   groupFindings,
+  plural,
   severityCounts,
   stateOf,
   statusText,
@@ -18,7 +19,6 @@ const TYPES = ["image/png", "image/jpeg", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024;
 const BUSY = ["uploading", "queued", "detecting", "checking"];
 const STOPPED = ["failed", "canceled", "offline"];
-const TERMINAL = ["completed", "failed", "canceled"];
 const STEP_AT = { uploading: 0, queued: 1, detecting: 2, checking: 3, done: 4, clean: 4 };
 const LABEL = {
   empty: "Ready",
@@ -94,12 +94,14 @@ const cur = {
   dpr: 1,
   stopFollowing: null,
   abortUpload: null,
+  preview: null,
+  run: 0,
   items: [],
   selected: -1,
   lastStep: -1,
 };
 
-/* ---------- helpers ---------- */
+// Helpers
 
 // Everything from the server, model output included, goes in as text, never HTML.
 function h(tag, attrs, ...kids) {
@@ -134,11 +136,10 @@ function sevIcon(s) {
   return svg;
 }
 const fmt = (n) => String(+(+n).toFixed(2));
-const plural = (n, w) => `${n} ${w}${n === 1 ? "" : "s"}`;
 const fmtTime = (t) => new Date(t).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const isHex = (s) => /^#[0-9a-f]{6}$/i.test(s);
 
-/* ---------- page state ---------- */
+// Page state
 
 function render(state, ctx = {}) {
   body.dataset.state = state;
@@ -190,9 +191,13 @@ function render(state, ctx = {}) {
   }
 }
 
-/* ---------- image ---------- */
+// Image
 
 function showImage(src) {
+  if (cur.preview && cur.preview !== src) {
+    URL.revokeObjectURL(cur.preview);
+    cur.preview = null;
+  }
   ui.boxes.replaceChildren();
   ui.shotMeta.textContent = "";
   if (!src) {
@@ -222,7 +227,7 @@ function applyZoom() {
   placeMarkers();
 }
 
-/* ---------- results ---------- */
+// Results
 
 function showResult(analysis) {
   const result = analysis.result;
@@ -443,7 +448,7 @@ function placeMarkers() {
   }
 }
 
-/* ---------- selection ---------- */
+// Selection
 
 function hover(i, on) {
   for (const p of ["b-", "m-", "f-"]) {
@@ -542,7 +547,7 @@ ui.toggleBoxes.addEventListener("change", () =>
 );
 if ("ResizeObserver" in window) new ResizeObserver(placeMarkers).observe(ui.shot);
 
-/* ---------- downloads ---------- */
+// Downloads
 
 function setDownloads(analysis) {
   const base = (cur.name || "screenshot").replace(/\.[^.]+$/, "");
@@ -552,18 +557,22 @@ function setDownloads(analysis) {
   ui.reportJson.download = `${base}-report.json`;
 }
 
-/* ---------- history ---------- */
+// History
 
+let historyRequest = 0;
 async function refreshHistory() {
+  const request = ++historyRequest;
   let items;
   try {
     items = (await listAnalyses(10)).items;
   } catch {
+    if (request !== historyRequest) return;
     ui.history.replaceChildren(
       h("tr", null, h("td", { colspan: 5, class: "recent-empty", text: "Couldn't load history." })),
     );
     return;
   }
+  if (request !== historyRequest) return; // a newer refresh already started
   if (!items.length) {
     ui.history.replaceChildren(
       h("tr", null, h("td", { colspan: 5, class: "recent-empty", text: "No analyses yet." })),
@@ -596,13 +605,20 @@ async function refreshHistory() {
   );
 }
 
-/* ---------- following an analysis ---------- */
+// Following an analysis
+//
+// Each upload or opened analysis is a "run". Anything async (an upload, a fetch,
+// a websocket event) checks it still belongs to the current run before touching
+// the page, so a slow response from an old run can't overwrite a newer one.
 
-function stopActivity() {
+function begin() {
   cur.stopFollowing?.();
   cur.stopFollowing = null;
   cur.abortUpload?.();
   cur.abortUpload = null;
+  cur.lastStep = -1;
+  cur.run += 1;
+  return cur.run;
 }
 
 function finish(analysis) {
@@ -612,9 +628,9 @@ function finish(analysis) {
   refreshHistory();
 }
 
-function open(analysis) {
-  stopActivity();
+function openAnalysis(analysis, run = begin(), file = null) {
   cur.analysis = analysis;
+  cur.file = file;
   cur.name = analysis.original_filename || "Screenshot";
   cur.dpr = analysis.device_pixel_ratio || 1;
   showImage(analysis.image_url);
@@ -625,18 +641,21 @@ function open(analysis) {
   render(stateOf(analysis));
   cur.stopFollowing = followAnalysis(analysis.id, {
     onEvent: async (event) => {
+      if (run !== cur.run) return;
       if (!TERMINAL.includes(event.status)) {
         render(stateOf(event));
         return;
       }
       cur.stopFollowing = null;
       try {
-        finish(event.snapshot ?? (await getAnalysis(analysis.id)));
+        const final = event.snapshot ?? (await getAnalysis(analysis.id));
+        if (run === cur.run) finish(final);
       } catch (err) {
-        render("failed", { error: err.message });
+        if (run === cur.run) render("failed", { error: err.message });
       }
     },
     onGiveUp: () => {
+      if (run !== cur.run) return;
       cur.stopFollowing = null;
       render("offline");
     },
@@ -644,9 +663,14 @@ function open(analysis) {
 }
 
 async function openId(id) {
+  const run = begin();
   try {
-    open(await getAnalysis(id));
+    const analysis = await getAnalysis(id);
+    if (run === cur.run) openAnalysis(analysis, run);
   } catch (err) {
+    if (run !== cur.run) return;
+    cur.analysis = null;
+    cur.file = null;
     cur.name = null;
     showImage(null);
     render("failed", { error: err.status === 404 ? "That analysis doesn't exist." : err.message });
@@ -658,16 +682,19 @@ function openFromHash() {
   if (/^[0-9a-f-]{36}$/.test(id) && id !== cur.analysis?.id) openId(id);
 }
 
-/* ---------- starting an analysis ---------- */
+// Starting an analysis
 
 async function startFile(file) {
   if (!file) return;
-  stopActivity();
+  const run = begin();
   cur.analysis = null;
   cur.file = file;
   cur.name = file.name;
   cur.dpr = +ui.ratio.value || 1;
   ui.fileName.textContent = file.name;
+  // Drop the previous analysis from the URL, so opening it from the history
+  // list later still fires a hashchange.
+  history.replaceState(null, "", location.pathname + location.search);
   if (!TYPES.includes(file.type)) {
     showImage(null);
     render("failed", { error: "This file type isn't supported. Use PNG, JPEG or WebP." });
@@ -679,34 +706,40 @@ async function startFile(file) {
     return;
   }
   // Show the screenshot straight away; the server's copy replaces it once uploaded.
-  showImage(URL.createObjectURL(file));
+  const preview = URL.createObjectURL(file);
+  showImage(preview);
+  cur.preview = preview;
   render("uploading", { pct: 0 });
   const upload = uploadScreenshot(file, cur.dpr, (pct) => {
-    if (body.dataset.state === "uploading") render("uploading", { pct });
+    if (run === cur.run && body.dataset.state === "uploading") render("uploading", { pct });
   });
   cur.abortUpload = upload.abort;
   let analysis;
   try {
     analysis = await upload.promise;
   } catch (err) {
+    if (run !== cur.run) return; // replaced by a newer upload or analysis
     cur.abortUpload = null;
     if (err.name === "AbortError") render("canceled");
     else render("failed", { error: err.message });
     return;
   }
+  if (run !== cur.run) return;
   cur.abortUpload = null;
   history.replaceState(null, "", `#${analysis.id}`);
-  open(analysis);
+  openAnalysis(analysis, run, file);
   refreshHistory();
 }
 
-// The header's picker waits for Analyze (so the pixel ratio can be set first). The
-// "Choose file" buttons on the stage have no Analyze button next to them, so a file
+// The header's picker waits for Analyze, so the pixel ratio can be set first.
+// The "Choose file" buttons on the stage have no Analyze next to them, so a file
 // picked there starts right away.
 let startOnPick = false;
-document.querySelectorAll(".stage-scroll label[for='file']").forEach((label) =>
-  label.addEventListener("click", () => {
+document.querySelectorAll("[data-pick]").forEach((button) =>
+  button.addEventListener("click", () => {
     startOnPick = true;
+    ui.file.value = ""; // so picking the same file again still fires "change"
+    ui.file.click();
   }),
 );
 document.querySelector(".appbar label[for='file']").addEventListener("click", () => {
@@ -753,7 +786,7 @@ ui.stageAction.addEventListener("click", () => {
   else if (cur.file) startFile(cur.file);
 });
 
-/* ---------- drag & drop ---------- */
+// Drag and drop
 
 let depth = 0;
 const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
@@ -778,8 +811,6 @@ window.addEventListener("drop", (e) => {
   body.classList.remove("is-dragging");
   startFile(e.dataTransfer.files[0]);
 });
-
-/* ---------- start ---------- */
 
 window.addEventListener("hashchange", openFromHash);
 render("empty");

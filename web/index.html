@@ -63,13 +63,7 @@
       <p id="status" class="status" role="status" aria-live="polite">
         Choose a screenshot, drop one on the page, or try the example.
       </p>
-      <progress
-        id="progress"
-        class="progress"
-        max="100"
-        aria-label="Upload progress"
-        hidden
-      ></progress>
+      <progress id="progress" class="progress" max="100" aria-label="Progress" hidden></progress>
       <button id="cancel" type="button" class="btn" hidden>
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
           <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg
@@ -112,7 +106,7 @@
             </svg>
             <h3 class="dz-text">Drop a screenshot here, or choose a file.</h3>
             <div class="dz-actions">
-              <label for="file" class="btn">Choose file</label>
+              <button type="button" class="btn" data-pick>Choose file</button>
               <button type="button" id="example" class="btn btn-primary">Try an example</button>
             </div>
           </div>
@@ -121,7 +115,7 @@
             <p id="stage-text" class="sm-text"></p>
             <div class="dz-actions">
               <button type="button" id="stage-action" class="btn btn-primary"></button>
-              <label for="file" class="btn">Choose another file</label>
+              <button type="button" class="btn" data-pick>Choose another file</button>
             </div>
           </div>
           <figure id="figure" class="shot-figure">

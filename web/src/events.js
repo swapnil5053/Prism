@@ -1,6 +1,6 @@
 import { eventsUrl } from "./api.js";
 
-const TERMINAL = new Set(["completed", "failed", "canceled"]);
+export const TERMINAL = ["completed", "failed", "canceled"];
 
 /**
  * Follow an analysis' progress events. Reconnects with backoff and resumes
@@ -24,10 +24,15 @@ export function followAnalysis(id, { onEvent, onGiveUp }, opts = {}) {
     socket = new WS(eventsUrl(id, lastId, opts.location));
     socket.onmessage = (msg) => {
       retries = 0;
-      const event = JSON.parse(msg.data);
+      let event;
+      try {
+        event = JSON.parse(msg.data);
+      } catch {
+        return; // not ours; the server only sends JSON
+      }
       if (event.id) lastId = event.id;
       onEvent(event);
-      if (TERMINAL.has(event.status)) stop();
+      if (TERMINAL.includes(event.status)) stop();
     };
     socket.onclose = (e) => {
       if (stopped) return;

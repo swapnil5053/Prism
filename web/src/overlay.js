@@ -39,14 +39,14 @@ export function stateOf(a) {
   }
 }
 
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export function statusText(state, ctx = {}) {
   switch (state) {
     case "empty":
       return "Choose a screenshot, drop one on the page, or try the example.";
     case "uploading":
-      return `Uploading ${ctx.name || "file"}: ${ctx.pct || 0}%`;
+      return `Uploading ${ctx.name || "file"}.`;
     case "queued":
       return "Queued. Waiting for an analysis worker.";
     case "detecting":
