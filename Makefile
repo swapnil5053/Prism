@@ -21,7 +21,7 @@ test-unit:
 	uv run pytest -m "not integration and not model"
 
 test:
-	uv run pytest -m "not model" --cov --cov-report=term-missing
+	uv run pytest -m "not model" --cov --cov-report=term-missing --cov-fail-under=85
 
 test-web:
 	cd web && npm test

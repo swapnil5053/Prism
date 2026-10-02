@@ -7,3 +7,9 @@ eval/data
 data
 .env
 *.rdb
+eval/logs
+.coverage
+htmlcov
+.mypy_cache
+.ruff_cache
+.pytest_cache

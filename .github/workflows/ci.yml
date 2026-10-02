@@ -80,7 +80,7 @@ jobs:
           fetch-depth: 0
       - uses: astral-sh/setup-uv@v7
       - name: Python dependencies
-        run: uv export --frozen --all-extras --no-hashes --no-emit-project > req.txt && uvx pip-audit -r req.txt
+        run: uv export --frozen --all-extras --no-hashes --no-emit-project > req.txt && uvx pip-audit -r req.txt --disable-pip --no-deps
       - name: JS dependencies
         working-directory: web
         run: npm audit --audit-level=high
