@@ -191,6 +191,10 @@ section checks v4 on pages it has never seen.
 
 ### Held-out check
 
+(These two comparisons were re-run after the fix that stops OCR'd icon glyphs
+being scored as text. The per-run tables above predate it; it moves target
+size and contrast by less than 0.005.)
+
 `detect --skip 60` runs on synth-test pages 60-299, which no prompt or model
 choice looked at. `prism-eval compare` scores two runs on the pages both
 logged and puts a 95% interval on each difference by resampling pages (paired
@@ -202,9 +206,9 @@ of which pages were drawn.
 | | v2 | v4 | v4 - v2 | 95% interval |
 |---|---|---|---|---|
 | Boxes F1 | 0.788 | 0.765 | -0.023 | -0.039 to -0.007 |
-| Boxes + labels F1 | 0.550 | 0.483 | -0.068 | -0.092 to -0.042 |
-| Target size F1 | 0.697 | 0.676 | -0.021 | -0.049 to +0.006 |
-| Contrast F1 | 0.820 | 0.794 | -0.025 | -0.043 to -0.008 |
+| Boxes + labels F1 | 0.555 | 0.488 | -0.067 | -0.091 to -0.041 |
+| Target size F1 | 0.699 | 0.680 | -0.019 | -0.046 to +0.008 |
+| Contrast F1 | 0.823 | 0.798 | -0.025 | -0.043 to -0.008 |
 | **Label F1** | 0.281 | **0.405** | **+0.123** | **+0.046 to +0.199** |
 | Output tokens (median) | 386 | 286 | -26% | |
 
@@ -214,7 +218,7 @@ on boxes and contrast. With v4 the model lists fewer links (584 against 644
 on these pages); OCR still reads the words of a missed link or button, but as
 loose text with a tighter box than the control's, so its contrast finding
 doesn't line up with the control when scored (false contrast findings on
-text: 133 with v2, 204 with v4). Target size is a wash. v4 stays the default because the label check was the
+text: 119 with v2, 186 with v4). Target size is a wash. v4 stays the default because the label check was the
 weakest rule by far, and it is faster; v2 with OCR is the better choice if
 contrast matters most.
 
@@ -222,10 +226,10 @@ contrast matters most.
 
 | | 3B | 7B | 7B - 3B | 95% interval |
 |---|---|---|---|---|
-| Boxes F1 | 0.766 | 0.799 | +0.033 | +0.004 to +0.060 |
-| Boxes + labels F1 | 0.465 | 0.558 | +0.093 | +0.037 to +0.146 |
-| Target size F1 | 0.673 | 0.623 | -0.050 | -0.118 to +0.013 |
-| Contrast F1 | 0.797 | 0.810 | +0.013 | -0.027 to +0.053 |
+| Boxes F1 | 0.765 | 0.799 | +0.034 | +0.005 to +0.062 |
+| Boxes + labels F1 | 0.470 | 0.564 | +0.094 | +0.038 to +0.146 |
+| Target size F1 | 0.680 | 0.634 | -0.046 | -0.112 to +0.015 |
+| Contrast F1 | 0.798 | 0.813 | +0.015 | -0.025 to +0.055 |
 | Label F1 | 0.351 | 0.254 | -0.097 | -0.299 to +0.097 |
 
 7B finds and classifies elements better, clearly. Whether that turns into

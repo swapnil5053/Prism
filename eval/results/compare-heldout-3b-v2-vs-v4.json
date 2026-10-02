@@ -23,22 +23,22 @@
       "ci95_high": -0.007
     },
     "boxes_and_labels": {
-      "a_f1": 0.55,
-      "b_f1": 0.483,
-      "difference": -0.068,
-      "ci95_low": -0.092,
-      "ci95_high": -0.042
+      "a_f1": 0.555,
+      "b_f1": 0.488,
+      "difference": -0.067,
+      "ci95_low": -0.091,
+      "ci95_high": -0.041
     },
     "target-size": {
-      "a_f1": 0.697,
-      "b_f1": 0.676,
-      "difference": -0.021,
-      "ci95_low": -0.049,
-      "ci95_high": 0.006
+      "a_f1": 0.699,
+      "b_f1": 0.68,
+      "difference": -0.019,
+      "ci95_low": -0.046,
+      "ci95_high": 0.008
     },
     "text-contrast": {
-      "a_f1": 0.82,
-      "b_f1": 0.794,
+      "a_f1": 0.823,
+      "b_f1": 0.798,
       "difference": -0.025,
       "ci95_low": -0.043,
       "ci95_high": -0.008

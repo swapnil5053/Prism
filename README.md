@@ -1,17 +1,43 @@
 # Prism
 
-Prism audits UI screenshots for accessibility problems. Upload a screenshot and
-it reports low text contrast, touch targets smaller than 24 CSS px, and form
-controls without a visible label, each tied to a WCAG 2.2 success criterion.
-
-A vision-language model (Qwen2.5-VL-3B, 4-bit) finds and classifies the
-controls, and an OCR model finds the text. The checks themselves are ordinary
-code that measures pixels. A 3B model can't compute a contrast ratio reliably;
-a function can, and it can be unit-tested.
+Prism checks a UI screenshot for three common accessibility problems: text
+with too little contrast, tap targets smaller than 24 px, and form fields with
+no visible label. Upload a screenshot and it marks each problem on the image,
+with the WCAG 2.2 rule it breaks.
 
 ![Prism's results for one of the benchmark's test pages: numbered boxes on the screenshot, findings grouped by WCAG criterion, contrast findings with the measured colours](docs/screenshot.png)
 
-## Architecture
+## Why I built this
+
+Accessibility checkers like axe and Lighthouse read a page's code. That works
+when you have the code, but a lot of design review happens on pictures: a
+Figma export, a screenshot pasted into a bug report, a phone app you can't
+inspect. I wanted to see how much of an accessibility check you can do from
+pixels alone.
+
+The obvious approach is to show a vision-language model the screenshot and
+ask what's wrong. I tried that first, and the answers sound right and can't
+be checked: a contrast ratio is arithmetic, and a 3B model guessing it is
+just guessing. So Prism splits the work. The model only finds the elements;
+plain code does the measuring, and every number it reports can be traced
+back to pixels. I also wanted to know how often it's right, so the repo
+includes a benchmark with exact ground truth.
+
+## What it does
+
+- Finds buttons, links, inputs, checkboxes, icons and images with
+  Qwen2.5-VL, and text with an OCR model.
+- Checks text contrast (WCAG 1.4.3) from the actual pixel colours, target size
+  (2.5.8) in CSS pixels using the screenshot's pixel ratio, and visible
+  labels (3.3.2) from layout.
+- Shows progress live (queued, detecting, checking) and can cancel a running
+  job.
+- Gives a score, findings grouped by rule, the measured colours for each
+  contrast problem, and HTML or JSON reports to download.
+- Keeps each visitor's analyses private without accounts, using a signed
+  cookie.
+
+## How it works
 
 ```mermaid
 flowchart LR
@@ -27,94 +53,143 @@ flowchart LR
     W -->|progress events| R
     R -->|replay from last id| A
     A -->|WebSocket| B
-    A <-->|analyses| P
 ```
 
-- **API** (`src/prism/api`): upload, results, reports, cancel. Each browser gets
-  an anonymous workspace through an HMAC-signed cookie, so visitors can't read
-  each other's analyses.
-- **Worker** (`src/prism/worker`): one job at a time on one GPU. Inference runs
-  in a thread; cancelling flips a flag the model checks on every token.
-- **Detection** (`src/prism/vision`): Qwen2.5-VL finds buttons, links, inputs,
-  checkboxes, icons and images; OCR (PP-OCR on the CPU) finds the text; the
-  two are merged so a button's caption isn't also listed as loose text.
-- **Events** (`src/prism/events.py`): progress goes into a Redis stream per
-  analysis. A browser that connects late or reconnects replays what it missed.
-- **Checks** (`src/prism/a11y`): contrast (SC 1.4.3), target size (SC 2.5.8),
-  visible labels (SC 3.3.2).
-
-### Lifecycle of an analysis
-
-```mermaid
-sequenceDiagram
-    participant B as Browser
-    participant A as API
-    participant R as Redis
-    participant W as Worker
-    participant P as Postgres
-    B->>A: POST /api/v1/analyses (image)
-    A->>A: decode, re-encode, store
-    A->>P: insert analysis (queued)
-    A->>R: enqueue analyze(id)
-    A-->>B: 201 queued
-    B->>A: WebSocket /analyses/{id}/events
-    R->>W: job
-    W->>P: claim (queued → running)
-    W->>R: event: detecting
-    W->>W: OCR reads text, Qwen2.5-VL finds controls
-    W->>R: event: auditing
-    W->>W: contrast, target size, labels
-    W->>P: save result
-    W->>R: event: completed
-    R-->>A: stream entries
-    A-->>B: events, then the final result
-```
+The API stores the upload and queues a job. A worker with the model loaded
+runs one job at a time: the VLM finds controls, OCR finds text, the two lists
+are merged, and the checks run on the result. Progress goes into a Redis
+stream, so a browser that connects late or reconnects replays what it missed.
 
 ## Results
 
-Measured on synthetic pages with exact ground truth, rendered in Chromium and
-labelled from the DOM. Rules were tuned on one seed and reported on another.
-Full tables and method: [eval/README.md](eval/README.md).
+Measured on generated web pages with exact ground truth (rendered in
+Chromium, labelled from the DOM). F1 scores:
 
-**Checks on correct boxes** (300 pages):
-
-| Check | Precision | Recall |
+| Check | On correct boxes | Full pipeline |
 |---|---|---|
-| Text contrast | 0.87 | 0.93 |
-| Target size | 1.00 | 1.00 |
-| Visible label | 1.00 | 0.75 |
+| Text contrast | 0.90 | 0.80 |
+| Target size | 1.00 | 0.68 |
+| Visible label | 0.86 | 0.41 |
 
-**End to end with the detector** (4-bit NF4, 60 pages, RTX 4060 Laptop):
+The first column is the checks alone, given the true element boxes (300 test
+pages). The second is the whole pipeline, model errors included, on 240 pages
+that no prompt or model choice was tuned on. The default setup (Qwen2.5-VL-3B in
+4-bit, 896 px) needs 2.6 GB of VRAM and takes about 22 s per page on an RTX
+4060 laptop GPU. The 7B model at 1280 px is faster there (15 s) and better at
+finding elements, but needs 6.8 GB.
 
-| | 3B, prompt v1 | 3B, prompt v2 | 3B, v4 + OCR (default) | 7B at 1280 px, v4 + OCR |
-|---|---|---|---|---|
-| Element boxes found (F1) | 0.63 | 0.64 | 0.76 | 0.79 |
-| Boxes with correct type (F1) | 0.27 | 0.45 | 0.50 | 0.59 |
-| Target-size findings (F1) | 0.19 | 0.71 | 0.69 | 0.62 |
-| Contrast findings (F1) | 0.73 | 0.68 | 0.80 | 0.82 |
-| Visible-label findings (F1) | 0.19 | 0.19 | 0.34 | 0.36 |
-| Time per page | | 25 s | 22 s | 15 s |
-| Peak VRAM | 2.6 GB | 2.6 GB | 2.6 GB | 6.8 GB |
+Each step was driven by a measured gap. Scoring boxes and labels separately
+showed the first prompt called most buttons and links "text", so the second
+prompt defined each label (target size 0.19 to 0.71). Per-kind scores showed
+the model missed most small text, so text now comes from OCR (contrast 0.68
+to 0.80). Asking the model for controls only then fixed input boxes (label
+check 0.28 to 0.41, with a confidence interval of +0.05 to +0.20).
 
-Boxes were good from the start (mean IoU about 0.8), but the first prompt
-labelled most links and buttons as plain text, which switched off the
-target-size check. Scoring boxes and labels separately exposed it, and
-defining each label in the prompt fixed most of it. The next gap was small
-text: the model missed more than half of it, while an OCR model finds 247 of
-248. So text now comes from OCR, and the VLM is only asked for controls
-(prompt v4). That lifted contrast from 0.68 to 0.80 and the label check from
-0.19 to 0.34.
+The full write-up, with every run, the held-out comparisons and the timing
+analysis: [eval/README.md](eval/README.md).
 
-These choices were made on the first 60 test pages, then re-checked on 240
-pages none of them had seen, with bootstrap confidence intervals. The label
-check gain from v4 held (0.28 to 0.41 against v2, interval +0.05 to +0.20),
-at a small, real cost in contrast (0.82 to 0.79).
+## Tech stack
 
-Generation is about 90% of the time, so writing fewer tokens is what makes it
-faster. 7B decodes faster per token than 3B on this laptop (the GPU sits
-partly idle with the smaller model), and with v4 it writes 43% fewer tokens,
-so on an 8 GB GPU it is the fastest setup and the best at finding and
-classifying elements. 3B stays the default because it fits in 4 GB.
+- **API:** Python 3.12, FastAPI, SQLAlchemy 2 (async) with Postgres, Alembic,
+  arq on Redis, WebSockets.
+- **Model:** Qwen2.5-VL (Transformers, bitsandbytes 4-bit), PP-OCR through
+  rapidocr on ONNX Runtime.
+- **Checks:** NumPy and Pillow.
+- **Frontend:** plain HTML, CSS and JavaScript, built with Vite. No framework.
+- **Tooling:** uv, ruff, mypy (strict), pytest, Vitest, Playwright (for the
+  benchmark), Docker Compose, GitHub Actions.
+
+## Quick start
+
+You need Docker, or Python 3.12+ with [uv](https://docs.astral.sh/uv/),
+Node 22+, Postgres and Redis. The worker needs an NVIDIA GPU.
+
+**With Docker:**
+
+```bash
+cp .env.example .env    # set POSTGRES_PASSWORD and PRISM_SECRET_KEY
+make up-gpu             # Postgres, Redis, API, web and the GPU worker
+```
+
+Open http://127.0.0.1:8000. `make up` starts everything except the worker,
+which is enough to look at the page, but analyses will wait in the queue.
+
+**Locally:**
+
+```bash
+docker run -d -p 5432:5432 -e POSTGRES_USER=prism -e POSTGRES_PASSWORD=prism-test \
+    -e POSTGRES_DB=prism postgres:16
+docker run -d -p 6379:6379 redis:7
+cp .env.example .env    # set PRISM_SECRET_KEY, and prism-test as the database password
+make install migrate
+make api                # http://127.0.0.1:8000/docs
+make worker             # downloads the model on first run
+make web                # http://localhost:5173
+```
+
+On Windows, PyPI only has CPU builds of PyTorch. After `uv sync --extra
+worker`, install the CUDA build and start the worker without re-syncing:
+
+```powershell
+uv pip install --reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu128
+uv run --no-sync prism-worker
+```
+
+To use the 7B model: `PRISM_DETECTOR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct
+PRISM_DETECTOR_MAX_SIDE=1280 make worker`.
+
+**Tests:**
+
+```bash
+make test        # unit and integration tests (needs Postgres and Redis)
+make test-web
+make lint typecheck
+```
+
+Integration tests use a separate database (create `prism_test` in the
+Postgres above) and Redis db 15. Tests marked `model` run the real detector
+code on a tiny random checkpoint, so they need the `worker` extra but no GPU.
+
+## Design notes
+
+- **The model's output is data, not instructions.** Text in a screenshot can
+  say anything, including instructions to the model. Output is parsed
+  tolerantly (code fences, truncated arrays), validated with Pydantic, and
+  only ever rendered as text.
+- **Contrast from pixels.** The pixels in a text box are split into two
+  clusters; the larger is the background. The text colour comes from the 20%
+  of text pixels furthest from the background, because anti-aliased edges
+  blend the two. Seeding the clustering with the darkest and lightest pixels
+  failed on small buttons, where the rounded corners got picked as text; the
+  benchmark caught it, and seeding with the most common colour raised recall
+  from 0.77 to 0.93.
+- **Redis Streams, not pub/sub.** The browser opens its WebSocket after the
+  upload returns, and a fast job could finish first. A stream per analysis
+  keeps the events, so nothing is lost. Closing the page doesn't cancel the
+  job; cancelling is an explicit request.
+- **Cancelling mid-generation.** `generate()` runs in a thread. A task polls
+  a Redis key and sets a flag that a stopping criterion checks on every
+  token, so the model loop never waits on the network. A job that times out
+  is marked failed and its thread stopped the same way.
+- **One job per GPU.** Two generations on an 8 GB card either run out of
+  memory or run at half speed each, so the worker takes one job at a time.
+  Scaling out means more workers, each with its own GPU.
+- **Uploads are re-encoded.** Files are decoded by Pillow, size-checked
+  before decoding, and written back out under a random name, which drops EXIF
+  and anything appended to the image. Request bodies over the limit are
+  refused before they are read.
+
+## Limitations
+
+- Everything comes from pixels: no alt text, focus order, ARIA or keyboard
+  checks.
+- Large text is guessed from box height, so bold 14 pt text counts as normal
+  text.
+- The label check is the weakest (0.41). The models miss about half the
+  unlabeled inputs and checkboxes, and a heading directly above an input reads
+  as its label.
+- The benchmark pages are synthetic. Detection hasn't been measured on real
+  screenshots yet.
 
 ## Project layout
 
@@ -123,71 +198,11 @@ src/prism/
   api/          FastAPI app, routes, uploads, workspaces, rate limit
   worker/       arq worker and the analyze task
   vision/       Qwen2.5-VL backend, OCR, merging, output parser
-  a11y/         contrast, target size, label checks and scoring
+  a11y/         contrast, target size and label checks, scoring
   db/           SQLAlchemy models and Alembic migrations
-  evaluation/   synthetic data generator, metrics, benchmark CLI
-  events.py     Redis Streams progress events
-  report.py     HTML report with the annotated screenshot
-web/            the page: plain HTML, CSS and JS, built with Vite
-tests/          unit, integration (Postgres + Redis), model smoke tests
+  evaluation/   synthetic pages, metrics, benchmark CLI (prism-eval)
+web/            the page
+tests/          unit, integration and model tests
 eval/           benchmark write-up and result files
 deploy/         Dockerfiles and Compose files
-docs/           design decisions
 ```
-
-## Running locally
-
-Requires Python 3.12+, [uv](https://docs.astral.sh/uv/), Node 22+, Postgres and
-Redis. The worker needs an NVIDIA GPU (developed on an 8 GB RTX 4060).
-
-```bash
-cp .env.example .env   # set PRISM_SECRET_KEY and the database URL
-make install migrate
-make api               # http://127.0.0.1:8000/docs
-make worker            # downloads the model on first run
-make web               # http://localhost:5173
-```
-
-On Windows, PyPI only has CPU builds of PyTorch. After syncing the worker
-extra, swap in the CUDA build and run the worker without re-syncing:
-
-```powershell
-uv sync --extra worker
-uv pip install --reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu128
-uv run --no-sync prism-worker
-```
-
-With Docker (set `POSTGRES_PASSWORD` and `PRISM_SECRET_KEY` in `.env` first):
-
-```bash
-make up                # Postgres, Redis, API and web on http://127.0.0.1:8000
-make up-gpu            # the same plus the GPU worker
-```
-
-## Tests
-
-```bash
-make test        # unit + integration; needs Postgres and Redis
-make test-web
-make lint typecheck
-```
-
-Integration tests use a throwaway database (`PRISM_TEST_DATABASE_URL`) and
-Redis db 15. Tests marked `model` run the real detector code on a tiny random
-checkpoint, so they need the `worker` extra but no GPU.
-
-## Limitations
-
-- Everything comes from pixels. No DOM means no alt text, focus order, ARIA
-  or keyboard checks.
-- Large text for contrast is guessed from box height; bold 14 pt text counts
-  as normal text.
-- The label check works from layout, so a heading directly above an unlabeled
-  input reads as its label.
-- The visible-label check is still the weakest (F1 0.34 on 3B, 0.36 on 7B).
-  Text is no longer the problem: the models miss about half of the
-  unlabeled inputs and checkboxes, and sometimes call an empty image
-  placeholder an input.
-- Detection has only been measured on synthetic pages so far.
-
-More on the trade-offs: [docs/decisions.md](docs/decisions.md).

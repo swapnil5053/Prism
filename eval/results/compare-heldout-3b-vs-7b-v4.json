@@ -14,32 +14,32 @@
   },
   "f1": {
     "boxes": {
-      "a_f1": 0.766,
+      "a_f1": 0.765,
       "b_f1": 0.799,
-      "difference": 0.033,
-      "ci95_low": 0.004,
-      "ci95_high": 0.06
+      "difference": 0.034,
+      "ci95_low": 0.005,
+      "ci95_high": 0.062
     },
     "boxes_and_labels": {
-      "a_f1": 0.465,
-      "b_f1": 0.558,
-      "difference": 0.093,
-      "ci95_low": 0.037,
+      "a_f1": 0.47,
+      "b_f1": 0.564,
+      "difference": 0.094,
+      "ci95_low": 0.038,
       "ci95_high": 0.146
     },
     "target-size": {
-      "a_f1": 0.673,
-      "b_f1": 0.623,
-      "difference": -0.05,
-      "ci95_low": -0.118,
-      "ci95_high": 0.013
+      "a_f1": 0.68,
+      "b_f1": 0.634,
+      "difference": -0.046,
+      "ci95_low": -0.112,
+      "ci95_high": 0.015
     },
     "text-contrast": {
-      "a_f1": 0.797,
-      "b_f1": 0.81,
-      "difference": 0.013,
-      "ci95_low": -0.027,
-      "ci95_high": 0.053
+      "a_f1": 0.798,
+      "b_f1": 0.813,
+      "difference": 0.015,
+      "ci95_low": -0.025,
+      "ci95_high": 0.055
     },
     "visible-label": {
       "a_f1": 0.351,
