@@ -172,8 +172,12 @@ async def get_report(
             headers={"Content-Disposition": f'attachment; filename="{stem}.json"'},
         )
 
+    image_path = resolve_key(settings.upload_dir, analysis.image_key)
+    if not image_path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Image not found")
+
     def build() -> str:
-        with Image.open(resolve_key(settings.upload_dir, analysis.image_key)) as img:
+        with Image.open(image_path) as img:
             return render_html(
                 analysis.original_filename or "Screenshot",
                 analysis.created_at.strftime("%Y-%m-%d %H:%M UTC"),

@@ -1,3 +1,4 @@
+import uuid
 from typing import Any
 
 import pytest
@@ -54,3 +55,17 @@ async def test_report_is_private(
     await analyze(worker_ctx, aid)
     async with other_client(app) as stranger:
         assert (await stranger.get(f"/api/v1/analyses/{aid}/report")).status_code == 404
+
+
+async def test_report_without_image_is_404(
+    app: FastAPI, client: AsyncClient, worker_ctx: dict[str, Any]
+) -> None:
+    from prism.api.uploads import resolve_key
+    from prism.db.models import Analysis
+
+    aid = (await upload(client)).json()["id"]
+    await analyze(worker_ctx, aid)
+    async with app.state.sessionmaker() as session:
+        analysis = await session.get(Analysis, uuid.UUID(aid))
+        resolve_key(worker_ctx["settings"].upload_dir, analysis.image_key).unlink()
+    assert (await client.get(f"/api/v1/analyses/{aid}/report")).status_code == 404
