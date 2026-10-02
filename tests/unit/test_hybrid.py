@@ -90,3 +90,26 @@ def test_hybrid_detector_cancel_skips_the_model() -> None:
     with pytest.raises(DetectionCanceled):
         HybridDetector(inner, FakeReader()).detect(Image.new("RGB", (10, 10)), lambda: True)
     assert inner.calls == 0
+
+
+def test_glyph_read_on_an_icon_is_not_extra_text() -> None:
+    # A 7x11 px menu icon; OCR boxes the glyph more loosely and reads it as "三".
+    icon = el("icon", 0.787, 0.033, 0.794, 0.052)
+    glyph = el("text", 0.784, 0.030, 0.800, 0.058, "三")
+    out = merge([icon], [glyph])
+    assert [(e.kind, e.text) for e in out] == [(ElementKind.ICON, None)]
+
+
+def test_lone_symbol_from_ocr_is_an_icon() -> None:
+    # The model missed the menu icon; OCR found it but read the glyph as "三".
+    lines = [
+        el("text", 0.95, 0.03, 0.97, 0.06, "三"),
+        el("text", 0.90, 0.03, 0.92, 0.06, "⚙"),
+        el("text", 0.10, 0.50, 0.12, 0.53, "A"),  # a single letter is still text
+    ]
+    out = merge([], lines)
+    assert [(e.kind, e.text) for e in out] == [
+        (ElementKind.ICON, None),
+        (ElementKind.ICON, None),
+        (ElementKind.TEXT, "A"),
+    ]

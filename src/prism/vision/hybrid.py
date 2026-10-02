@@ -36,7 +36,9 @@ def merge(detected: list[Element], lines: list[Element]) -> list[Element]:
     extra = []
     for line in lines:
         owner = _owner(line.box, controls)
-        if owner is None:
+        if owner is None and _is_glyph(line.text):
+            extra.append(line.model_copy(update={"kind": ElementKind.ICON, "text": None}))
+        elif owner is None:
             extra.append(line.model_copy(update={"kind": ElementKind.TEXT}))
         else:
             captions.setdefault(owner, []).append(line)
@@ -44,7 +46,8 @@ def merge(detected: list[Element], lines: list[Element]) -> list[Element]:
     out = []
     for i, control in enumerate(controls):
         # Prompts that don't ask the model for text still get it, from OCR.
-        if control.text is None and i in captions:
+        # Not for icons: what OCR reads on an icon is a glyph, not words.
+        if control.text is None and i in captions and control.kind is not ElementKind.ICON:
             words = " ".join(line.text for line in _reading_order(captions[i]) if line.text)
             control = control.model_copy(update={"text": words[:200] or None})
         out.append(control)
@@ -58,9 +61,20 @@ def _owner(line: Box, controls: list[Element]) -> int | None:
         if c.kind not in _CAPTIONED:
             continue
         overlap = _inside(line, c.box)
+        # OCR reads some icon glyphs as characters (a menu icon came back as "三"),
+        # and its box is looser than the model's box for a small icon, so the
+        # line is mostly outside the icon. Count it if it covers most of the icon.
+        if c.kind is ElementKind.ICON:
+            overlap = max(overlap, _inside(c.box, line))
         if overlap >= best_overlap:
             best, best_overlap = i, overlap
     return best
+
+
+def _is_glyph(text: str | None) -> bool:
+    """A lone symbol (☰, ⚙, or a menu icon OCR read as "三") rather than a word."""
+    t = (text or "").strip()
+    return len(t) == 1 and not (t.isascii() and t.isalnum())
 
 
 def _inside(inner: Box, outer: Box) -> float:
