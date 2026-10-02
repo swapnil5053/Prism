@@ -147,7 +147,7 @@ def _nav(rng: random.Random, p: Palette) -> str:
     )
 
 
-def _field(rng: random.Random, p: Palette, n: int) -> str:
+def _field(rng: random.Random, p: Palette) -> str:
     labelled = rng.random() < 0.75
     placeholder = _words(rng, 1, 2) if (not labelled or rng.random() < 0.4) else ""
     height = rng.choice([20, 28, 36, 44])
@@ -177,7 +177,7 @@ def _checkbox(rng: random.Random, p: Palette) -> str:
 
 def _form(rng: random.Random, p: Palette) -> str:
     parts = [_text(rng, p.page, rng.choice([20, 24, 28]), _words(rng, 2, 3)), "<br>"]
-    parts += [_field(rng, p, i) for i in range(rng.randint(1, 3))]
+    parts += [_field(rng, p) for _ in range(rng.randint(1, 3))]
     if rng.random() < 0.6:
         parts.append(_checkbox(rng, p))
     parts.append(_button(rng, p))

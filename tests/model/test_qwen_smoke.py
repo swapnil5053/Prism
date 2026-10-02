@@ -38,7 +38,7 @@ def test_stop_flag_cancels(detector: QwenDetector) -> None:
         detector.detect(Image.new("RGB", (100, 100)), should_stop=lambda: True)
 
 
-def test_version_names_model_and_settings(detector: QwenDetector, tmp_path: Path) -> None:
+def test_version_names_model_and_settings(detector: QwenDetector) -> None:
     assert detector.version.endswith(":none:112:prompt-v2")
 
 

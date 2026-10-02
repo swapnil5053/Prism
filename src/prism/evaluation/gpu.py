@@ -143,7 +143,7 @@ class _GpuSampler:
 
     def __enter__(self) -> "_GpuSampler":
         if self._exe is not None:
-            self._thread = threading.Thread(target=self._poll, daemon=True)
+            self._thread = threading.Thread(target=self._poll, args=(self._exe,), daemon=True)
             self._thread.start()
         return self
 
@@ -152,9 +152,8 @@ class _GpuSampler:
         if self._thread is not None:
             self._thread.join()
 
-    def _poll(self) -> None:
-        assert self._exe is not None
-        query = [self._exe, f"--query-gpu={','.join(self.FIELDS)}", "--format=csv,noheader,nounits"]
+    def _poll(self, exe: str) -> None:
+        query = [exe, f"--query-gpu={','.join(self.FIELDS)}", "--format=csv,noheader,nounits"]
         while not self._stop.is_set():
             # A slow or odd reading is skipped, never allowed to end the benchmark.
             with contextlib.suppress(ValueError, OSError, subprocess.SubprocessError):

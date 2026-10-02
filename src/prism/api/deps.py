@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from prism.config import Settings
 
 
-def get_settings(request: Request) -> Settings:
+def settings_from_app(request: Request) -> Settings:
     settings: Settings = request.app.state.settings
     return settings
 
@@ -17,5 +17,5 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
         yield session
 
 
-SettingsDep = Annotated[Settings, Depends(get_settings)]
+SettingsDep = Annotated[Settings, Depends(settings_from_app)]
 SessionDep = Annotated[AsyncSession, Depends(get_session)]

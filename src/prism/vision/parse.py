@@ -58,7 +58,6 @@ _SYNONYMS: dict[str, ElementKind] = {
 @dataclass
 class ParseResult:
     elements: list[Element]
-    items_seen: int = 0
     valid_json: bool = True
     truncated: bool = False
     dropped: dict[str, int] = field(default_factory=dict)
@@ -75,7 +74,6 @@ def parse_elements(text: str, frame_width: float, frame_height: float) -> ParseR
     """
     items, valid, truncated = _load_items(text)
     result = ParseResult(elements=[], valid_json=valid, truncated=truncated)
-    result.items_seen = len(items)
 
     candidates: list[Element] = []
     for item in items:

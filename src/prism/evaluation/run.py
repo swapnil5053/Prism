@@ -238,6 +238,7 @@ def compare(
     text: str = "model",
     resamples: int = 2000,
     seed: int = 0,
+    frame: str = "pixels",
 ) -> dict[str, Any]:
     """Paired comparison of two runs on the pages both of them logged.
 
@@ -259,7 +260,7 @@ def compare(
             image = img.convert("RGB")
         both = []
         for side, rec in (("a", a_recs[name]), ("b", b_recs[name])):
-            elements, _, reader = _logged_elements(rec, image, "pixels", text, reader)
+            elements, _, reader = _logged_elements(rec, image, frame, text, reader)
             s = PipelineScore()
             s.add(page, image, elements)
             both.append({"boxes": s.boxes, "boxes_and_labels": s.strict.overall, **s.rules})
@@ -379,6 +380,7 @@ def main() -> None:
     )
     c.add_argument("--text", choices=["model", "ocr"], default="model")
     c.add_argument("--resamples", type=int, default=2000)
+    c.add_argument("--frame", choices=["pixels", "1000"], default="pixels")
     c.add_argument("--results", type=Path)
 
     t = sub.add_parser("timing", help="profile where detection time goes (GPU)")
@@ -419,7 +421,7 @@ def main() -> None:
     if args.cmd == "oracle":
         summary = oracle(args.data, args.limit)
     elif args.cmd == "compare":
-        summary = compare(args.data, args.a, args.b, args.text, args.resamples)
+        summary = compare(args.data, args.a, args.b, args.text, args.resamples, frame=args.frame)
     elif args.cmd == "rescore":
         summary = rescore(args.data, args.pages, args.frame, args.text)
     elif args.cmd == "timing":
