@@ -84,7 +84,7 @@ def test_flags_low_contrast_text_only() -> None:
 
 
 def test_large_text_uses_lower_threshold() -> None:
-    # #949494 on white is about 3.0:1: fails for body text, passes for large text.
+    # #909090 on white is about 3.2:1: fails for body text, passes for large text.
     img, box = text_image((0x90, 0x90, 0x90), (255, 255, 255), size=40)
     el = Element(id=0, kind=ElementKind.TEXT, box=box)
     assert contrast.check(img, [el], dpr=1) == []
@@ -95,3 +95,10 @@ def test_large_text_uses_lower_threshold() -> None:
 def test_ignores_non_text_elements() -> None:
     img, box = text_image((0xDD, 0xDD, 0xDD), (255, 255, 255))
     assert contrast.check(img, [Element(id=0, kind=ElementKind.IMAGE, box=box)], dpr=1) == []
+
+
+def test_box_too_thin_to_sample_is_skipped() -> None:
+    img = Image.new("RGB", (400, 300), "white")
+    # Under 1 px wide once inset: used to crash the crop and fail the whole analysis.
+    assert estimate(img, Box(x1=0.1, y1=0.1, x2=0.1022, y2=0.2)) is None
+    assert estimate(img, Box(x1=0.1, y1=0.1, x2=0.3, y2=0.104)) is None

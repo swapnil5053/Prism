@@ -51,9 +51,10 @@ def estimate(image: Image.Image, box: Box) -> ContrastEstimate | None:
     x1, y1, x2, y2 = box.to_pixels(image.width, image.height)
     # Trim the edges: rounded corners and borders there aren't text or background.
     dx, dy = max(1, round((x2 - x1) * _INSET)), max(1, round((y2 - y1) * _INSET))
-    crop = image.crop((x1 + dx, y1 + dy, x2 - dx, y2 - dy)).convert("RGB")
-    if crop.width < 2 or crop.height < 2:
+    # Boxes a few pixels across (thin detections on small screenshots) have nothing to sample.
+    if x2 - x1 < 2 * dx + 2 or y2 - y1 < 2 * dy + 2:
         return None
+    crop = image.crop((x1 + dx, y1 + dy, x2 - dx, y2 - dy)).convert("RGB")
     crop.thumbnail((_MAX_SAMPLE_SIDE * 4, _MAX_SAMPLE_SIDE), Image.Resampling.NEAREST)
     pixels = np.asarray(crop, dtype=np.float64).reshape(-1, 3)
     lum = relative_luminance(pixels)
