@@ -9,6 +9,8 @@ controls, and an OCR model finds the text. The checks themselves are ordinary
 code that measures pixels. A 3B model can't compute a contrast ratio reliably;
 a function can, and it can be unit-tested.
 
+![Prism's results for one of the benchmark's test pages: numbered boxes on the screenshot, findings grouped by WCAG criterion, contrast findings with the measured colours](docs/screenshot.png)
+
 ## Architecture
 
 ```mermaid
@@ -126,7 +128,7 @@ src/prism/
   evaluation/   synthetic data generator, metrics, benchmark CLI
   events.py     Redis Streams progress events
   report.py     HTML report with the annotated screenshot
-web/            upload page (HTML, CSS, JS, Vite)
+web/            the page: plain HTML, CSS and JS, built with Vite
 tests/          unit, integration (Postgres + Redis), model smoke tests
 eval/           benchmark write-up and result files
 deploy/         Dockerfiles and Compose files

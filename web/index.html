@@ -3,66 +3,187 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Prism</title>
+    <title>Prism · Screenshot accessibility checker</title>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="/src/style.css" />
+    <script type="module" src="/src/main.js"></script>
   </head>
-  <body>
-    <header>
-      <h1>Prism</h1>
-      <p>Upload a screenshot of a UI to find likely accessibility problems.</p>
-    </header>
+  <body data-state="empty">
+    <a class="skip" href="#findings">Skip to findings</a>
 
-    <main>
-      <form id="upload">
-        <label>
-          Screenshot (PNG, JPEG or WebP, up to 10 MB)
-          <input type="file" name="file" accept="image/png,image/jpeg,image/webp" required />
-        </label>
-        <label>
-          Pixel ratio
-          <select name="dpr">
-            <option value="1">1x (desktop)</option>
-            <option value="2">2x (phone, Retina)</option>
-            <option value="3">3x</option>
-          </select>
-        </label>
-        <button type="submit">Analyze</button>
-      </form>
-
-      <section id="current" hidden>
-        <div class="status-row">
-          <p id="status" role="status" aria-live="polite"></p>
-          <button id="cancel" type="button" hidden>Cancel</button>
-          <span id="downloads" hidden>
-            <a id="report-html" download>HTML report</a> ·
-            <a id="report-json" download>JSON</a>
+    <header class="appbar">
+      <div class="brand">
+        <h1 class="brand-name">Prism</h1>
+        <p class="brand-desc">Screenshot accessibility checker</p>
+      </div>
+      <form id="upload" class="upload">
+        <div class="field">
+          <input
+            type="file"
+            id="file"
+            name="file"
+            class="file-input"
+            accept="image/png,image/jpeg,image/webp"
+            aria-describedby="file-name file-hint"
+          />
+          <label for="file" class="btn"
+            ><svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M8 10.5V2.5M4.75 5.75 8 2.5l3.25 3.25M2.5 10v2.25c0 .7.55 1.25 1.25 1.25h8.5c.7 0 1.25-.55 1.25-1.25V10"
+              /></svg
+            >Choose screenshot</label
+          >
+          <span id="file-name" class="file-name">No file chosen</span>
+          <span id="file-hint" class="vh">PNG, JPEG or WebP, up to 10 MB</span>
+        </div>
+        <div class="field">
+          <label for="ratio" class="field-label">Pixel ratio</label>
+          <span class="select">
+            <select id="ratio" name="device_pixel_ratio">
+              <option value="1">1× desktop</option>
+              <option value="2">2× phone, retina</option>
+              <option value="3">3× phone</option>
+            </select>
+            <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
           </span>
         </div>
-        <div class="result">
-          <div class="shot">
+        <button type="submit" class="btn btn-primary">Analyze</button>
+      </form>
+    </header>
+
+    <section id="current" class="current" aria-label="Current analysis">
+      <span id="state-label" class="state-label">Ready</span>
+      <span id="current-name" class="current-name">No file</span>
+      <ol id="steps" class="steps" aria-label="Progress">
+        <li>Upload</li>
+        <li>Queue</li>
+        <li>Detect elements</li>
+        <li>Check rules</li>
+      </ol>
+      <p id="status" class="status" role="status" aria-live="polite">
+        Choose a screenshot, drop one on the page, or try the example.
+      </p>
+      <progress
+        id="progress"
+        class="progress"
+        max="100"
+        aria-label="Upload progress"
+        hidden
+      ></progress>
+      <button id="cancel" type="button" class="btn" hidden>
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+          <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" /></svg
+        >Cancel
+      </button>
+      <p id="downloads" class="downloads" hidden>
+        <span class="downloads-label">Download</span>
+        <a id="report-html" download
+          ><svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2.5v8M4.75 7.25 8 10.5l3.25-3.25M2.5 13.5h11" /></svg
+          >HTML report</a
+        >
+        <a id="report-json" download
+          ><svg class="icon" viewBox="0 0 16 16" aria-hidden="true">
+            <path d="M8 2.5v8M4.75 7.25 8 10.5l3.25-3.25M2.5 13.5h11" /></svg
+          >JSON</a
+        >
+      </p>
+    </section>
+
+    <main class="workspace">
+      <section class="stage" aria-labelledby="stage-heading">
+        <div class="pane-bar">
+          <h2 id="stage-heading" class="pane-title">Screenshot</h2>
+          <span id="shot-meta" class="pane-meta"></span>
+          <div class="pane-tools">
+            <div class="seg" role="group" aria-label="Zoom">
+              <button type="button" data-zoom="fit" aria-pressed="true">Fit</button>
+              <button type="button" data-zoom="actual" aria-pressed="false">100%</button>
+            </div>
+            <label class="check"><input type="checkbox" id="toggle-boxes" checked /> Boxes</label>
+          </div>
+        </div>
+        <div id="stage-scroll" class="stage-scroll">
+          <div class="dropzone">
+            <svg class="icon icon-lg dz-icon" viewBox="0 0 16 16" aria-hidden="true">
+              <path
+                d="M8 10.5V2.5M4.75 5.75 8 2.5l3.25 3.25M2.5 10v2.25c0 .7.55 1.25 1.25 1.25h8.5c.7 0 1.25-.55 1.25-1.25V10"
+              />
+            </svg>
+            <h3 class="dz-text">Drop a screenshot here, or choose a file.</h3>
+            <div class="dz-actions">
+              <label for="file" class="btn">Choose file</label>
+              <button type="button" id="example" class="btn btn-primary">Try an example</button>
+            </div>
+          </div>
+          <div id="stage-message" class="stage-message">
+            <h3 id="stage-title" class="sm-title"></h3>
+            <p id="stage-text" class="sm-text"></p>
+            <div class="dz-actions">
+              <button type="button" id="stage-action" class="btn btn-primary"></button>
+              <label for="file" class="btn">Choose another file</label>
+            </div>
+          </div>
+          <figure id="figure" class="shot-figure">
             <img id="shot" alt="" />
-            <div id="boxes"></div>
-          </div>
-          <div class="findings">
-            <h2 id="summary"></h2>
-            <ol id="findings"></ol>
-          </div>
+            <div id="boxes" class="boxes"></div>
+            <p id="stage-busy" class="stage-busy" aria-hidden="true"></p>
+          </figure>
         </div>
       </section>
 
-      <section>
-        <h2>Recent</h2>
-        <ul id="history"></ul>
-      </section>
+      <aside id="panel" class="panel" aria-labelledby="panel-heading">
+        <div class="pane-bar">
+          <h2 id="panel-heading" class="pane-title">Findings</h2>
+          <span class="pane-meta kbd-hint">↑ ↓ move · Esc clears</span>
+        </div>
+        <div id="summary" class="summary"></div>
+        <div class="checks-info">
+          <h3 class="ci-title">What Prism checks</h3>
+          <dl class="ci-list">
+            <div>
+              <dt>Text contrast <span class="ci-wcag">WCAG 1.4.3</span></dt>
+              <dd>Text against its background, at least 4.5 : 1, or 3 : 1 for large text.</dd>
+            </div>
+            <div>
+              <dt>Target size <span class="ci-wcag">WCAG 2.5.8</span></dt>
+              <dd>Interactive targets at least 24 × 24 CSS px.</dd>
+            </div>
+            <div>
+              <dt>Visible label <span class="ci-wcag">WCAG 3.3.2</span></dt>
+              <dd>Form fields with a visible label, not only placeholder text.</dd>
+            </div>
+          </dl>
+        </div>
+        <div id="findings" class="findings" tabindex="-1"></div>
+        <p class="disclaimer">
+          Checks are estimated from pixels. They catch common problems but don't replace testing
+          with assistive technology.
+        </p>
+      </aside>
     </main>
 
-    <footer>
-      <p>
-        Checks are estimated from pixels (contrast, target size, visible labels). They catch common
-        problems but don't replace testing with assistive technology.
-      </p>
-    </footer>
-    <script type="module" src="/src/main.js"></script>
+    <section class="recent" aria-labelledby="recent-heading">
+      <h2 id="recent-heading" class="recent-title">Recent analyses</h2>
+      <div class="table-wrap">
+        <table class="recent-table">
+          <thead>
+            <tr>
+              <th scope="col">File</th>
+              <th scope="col">Status</th>
+              <th scope="col" class="num-cell">Findings</th>
+              <th scope="col" class="num-cell">Score</th>
+              <th scope="col">Time</th>
+            </tr>
+          </thead>
+          <tbody id="history"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <div class="drop-overlay" aria-hidden="true">
+      <span>Drop to analyze</span>
+      <span class="drop-sub">PNG, JPEG or WebP, up to 10 MB</span>
+    </div>
   </body>
 </html>

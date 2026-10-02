@@ -18,11 +18,35 @@ async function request(url, options = {}) {
   return body;
 }
 
-export function uploadScreenshot(file, devicePixelRatio = 1) {
+/**
+ * Upload with progress. fetch() can't report upload progress, so this uses XHR.
+ * Returns {promise, abort}; abort() rejects the promise with an AbortError.
+ */
+export function uploadScreenshot(file, devicePixelRatio = 1, onProgress = () => {}) {
   const form = new FormData();
   form.append("file", file);
   form.append("device_pixel_ratio", String(devicePixelRatio));
-  return request(BASE, { method: "POST", body: form });
+  const xhr = new XMLHttpRequest();
+  const promise = new Promise((resolve, reject) => {
+    xhr.open("POST", BASE);
+    xhr.responseType = "json";
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onload = () => {
+      const body = xhr.response;
+      // 503 still returns the (failed) analysis; let the caller show it.
+      if (xhr.status < 300 || (xhr.status === 503 && body?.id)) resolve(body);
+      else
+        reject(
+          new ApiError(xhr.status, typeof body?.detail === "string" ? body.detail : undefined),
+        );
+    };
+    xhr.onerror = () => reject(new ApiError(0, "Couldn't reach the server."));
+    xhr.onabort = () => reject(new DOMException("Upload canceled", "AbortError"));
+    xhr.send(form);
+  });
+  return { promise, abort: () => xhr.abort() };
 }
 
 export const getAnalysis = (id) => request(`${BASE}/${id}`);
