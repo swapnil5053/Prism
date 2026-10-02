@@ -186,8 +186,58 @@ images, without a "text" field. Run on the same 60 pages:
   digits: Qwen's tokenizer writes every digit of a coordinate as its own
   token.
 
-v4 + OCR is now the default: it trades a little target-size F1 for a much
-better label check and less time per page.
+These 60 pages are the ones every choice so far was made on, so the next
+section checks v4 on pages it has never seen.
+
+### Held-out check
+
+`detect --skip 60` runs on synth-test pages 60-299, which no prompt or model
+choice looked at. `prism-eval compare` scores two runs on the pages both
+logged and puts a 95% interval on each difference by resampling pages (paired
+bootstrap, 2,000 resamples), so it's clear which gaps are more than the luck
+of which pages were drawn.
+
+**3B with OCR, prompt v2 against v4, on 240 unseen pages:**
+
+| | v2 | v4 | v4 - v2 | 95% interval |
+|---|---|---|---|---|
+| Boxes F1 | 0.788 | 0.765 | -0.023 | -0.039 to -0.007 |
+| Boxes + labels F1 | 0.550 | 0.483 | -0.068 | -0.092 to -0.042 |
+| Target size F1 | 0.697 | 0.676 | -0.021 | -0.049 to +0.006 |
+| Contrast F1 | 0.820 | 0.794 | -0.025 | -0.043 to -0.008 |
+| **Label F1** | 0.281 | **0.405** | **+0.123** | **+0.046 to +0.199** |
+| Output tokens (median) | 386 | 286 | -26% | |
+
+The label check gain is real and larger than on the tuning pages, and v4
+writes about a quarter fewer tokens. It also costs a small but real amount
+on boxes and contrast. With v4 the model lists fewer links (584 against 644
+on these pages); OCR still reads the words of a missed link or button, but as
+loose text with a tighter box than the control's, so its contrast finding
+doesn't line up with the control when scored (false contrast findings on
+text: 133 with v2, 204 with v4). Target size is a wash. v4 stays the default because the label check was the
+weakest rule by far, and it is faster; v2 with OCR is the better choice if
+contrast matters most.
+
+**3B against 7B at 1280 px, both v4 + OCR, on 60 unseen pages (60-119):**
+
+| | 3B | 7B | 7B - 3B | 95% interval |
+|---|---|---|---|---|
+| Boxes F1 | 0.766 | 0.799 | +0.033 | +0.004 to +0.060 |
+| Boxes + labels F1 | 0.465 | 0.558 | +0.093 | +0.037 to +0.146 |
+| Target size F1 | 0.673 | 0.623 | -0.050 | -0.118 to +0.013 |
+| Contrast F1 | 0.797 | 0.810 | +0.013 | -0.027 to +0.053 |
+| Label F1 | 0.351 | 0.254 | -0.097 | -0.299 to +0.097 |
+
+7B finds and classifies elements better, clearly. Whether that turns into
+better findings, 60 pages can't tell: the rule differences all straddle zero,
+and the label check rests on only 27 unlabeled controls. On the tuning pages
+7B's label score was ahead (0.36 against 0.34); here it is behind.
+
+The default 3B setup on the unseen pages scored within 0.03 of its tuning-page
+numbers on everything except the label check, which came out higher (0.41
+against 0.34).
+
+Results: `results/heldout-*.json`, comparisons in `results/compare-heldout-*.json`.
 
 ### Speed
 
@@ -223,22 +273,22 @@ power and temperature while each page runs. Windows, plugged in, power mode
   switching between the two speeds midway with nothing changed. Since
   decoding here is limited by the CPU side, Windows moving a background
   process onto efficiency cores would explain it; that's a guess that hasn't
-  been tested. It is also what was behind the 5.7-13.9 tokens/s spread between
-  earlier runs. Speed claims in this repo come from the timing files only.
+  been tested. The held-out runs fit it: the two made while the laptop was in
+  use decoded at 14-16 tokens/s, and the 420 pages run overnight with nobody
+  at it held a steady 6 tokens/s from start to finish. It is also what was
+  behind the 5.7-13.9 tokens/s spread between earlier runs. Speed claims in
+  this repo come from the timing files only.
 
 ### Default config
 
 Qwen2.5-VL-3B, NF4, 896 px, prompt v4, text from OCR. It fits GPUs with 4 GB.
-On an 8 GB card, 7B at 1280 px is both more accurate on everything except
-target size and faster:
+On an 8 GB card, 7B at 1280 px is faster (15 s against 22 s a page) and
+better at finding and classifying elements; on the findings themselves it
+hasn't been shown to be better or worse:
 
 ```bash
 PRISM_DETECTOR_MODEL=Qwen/Qwen2.5-VL-7B-Instruct PRISM_DETECTOR_MAX_SIDE=1280 make worker
 ```
-
-All of the prompt and model comparisons above were made on the same 60 test
-pages, so the chosen setups are slightly flattered. `detect --skip 60` runs on
-pages none of these choices looked at.
 
 Reproduce with:
 
@@ -252,6 +302,9 @@ uv run prism-eval detect --data eval/data/synth-test --limit 60 --max-side 896 \
     --prompt v4 --text ocr --results eval/results/detect-qwen25-3b-nf4-896-p4-ocr.json
 uv run prism-eval timing --data eval/data/synth-test --pages 10 --repeats 3 \
     --prompt v4 --text ocr --results eval/results/timing-qwen25-3b-896-p4-ocr.json
+uv run prism-eval compare --data eval/data/synth-test --text ocr \
+    --a eval/results/heldout-qwen25-3b-nf4-896-p2-ocr-*.pages.jsonl \
+    --b eval/results/heldout-qwen25-3b-nf4-896-p4-ocr-*.pages.jsonl
 ```
 
 Each run's raw model output is kept in `results/*.pages.jsonl`, so parser or

@@ -103,11 +103,16 @@ text: the model missed more than half of it, while an OCR model finds 247 of
 (prompt v4). That lifted contrast from 0.68 to 0.80 and the label check from
 0.19 to 0.34.
 
+These choices were made on the first 60 test pages, then re-checked on 240
+pages none of them had seen, with bootstrap confidence intervals. The label
+check gain from v4 held (0.28 to 0.41 against v2, interval +0.05 to +0.20),
+at a small, real cost in contrast (0.82 to 0.79).
+
 Generation is about 90% of the time, so writing fewer tokens is what makes it
 faster. 7B decodes faster per token than 3B on this laptop (the GPU sits
 partly idle with the smaller model), and with v4 it writes 43% fewer tokens,
-which makes it both the most accurate and the fastest setup if the GPU has
-8 GB. 3B stays the default because it fits in 4 GB.
+so on an 8 GB GPU it is the fastest setup and the best at finding and
+classifying elements. 3B stays the default because it fits in 4 GB.
 
 ## Project layout
 

@@ -1,0 +1,193 @@
+{
+  "model": "Qwen2.5-VL-3B-Instruct:nf4:896:prompt-v4",
+  "quant": "nf4",
+  "max_side": 896,
+  "prompt": "v4",
+  "text_source": "ocr",
+  "note": "Held-out pages 60-119 of synth-test (Windows render); no prompt or model choice was made on these pages. Ran with the machine in use, at a median 14.0 tokens/s.",
+  "first_page": 60,
+  "pages": 60,
+  "pages_out_of_memory": 0,
+  "valid_json_rate": 0.983,
+  "truncated_rate": 0.017,
+  "hit_token_limit_rate": 0.017,
+  "latency_s": {
+    "p50": 20.35,
+    "p95": 28.34
+  },
+  "peak_vram_gb": 2.64,
+  "detection": {
+    "boxes_any_label": {
+      "tp": 694,
+      "fp": 165,
+      "fn": 259,
+      "precision": 0.808,
+      "recall": 0.728,
+      "f1": 0.766,
+      "mean_iou": 0.776
+    },
+    "boxes_and_labels": {
+      "tp": 421,
+      "fp": 438,
+      "fn": 532,
+      "precision": 0.49,
+      "recall": 0.442,
+      "f1": 0.465
+    },
+    "button": {
+      "tp": 46,
+      "fp": 126,
+      "fn": 109,
+      "precision": 0.267,
+      "recall": 0.297,
+      "f1": 0.281
+    },
+    "checkbox": {
+      "tp": 10,
+      "fp": 13,
+      "fn": 15,
+      "precision": 0.435,
+      "recall": 0.4,
+      "f1": 0.417
+    },
+    "icon": {
+      "tp": 4,
+      "fp": 41,
+      "fn": 56,
+      "precision": 0.089,
+      "recall": 0.067,
+      "f1": 0.076
+    },
+    "image": {
+      "tp": 29,
+      "fp": 2,
+      "fn": 138,
+      "precision": 0.935,
+      "recall": 0.174,
+      "f1": 0.293
+    },
+    "input": {
+      "tp": 49,
+      "fp": 30,
+      "fn": 36,
+      "precision": 0.62,
+      "recall": 0.576,
+      "f1": 0.598
+    },
+    "link": {
+      "tp": 94,
+      "fp": 54,
+      "fn": 129,
+      "precision": 0.635,
+      "recall": 0.422,
+      "f1": 0.507
+    },
+    "text": {
+      "tp": 189,
+      "fp": 172,
+      "fn": 49,
+      "precision": 0.524,
+      "recall": 0.794,
+      "f1": 0.631
+    }
+  },
+  "confusion_truth_to_predicted": {
+    "button": {
+      "button": 45,
+      "link": 24,
+      "input": 4,
+      "checkbox": 0,
+      "icon": 1,
+      "text": 48,
+      "image": 0,
+      "missed": 33
+    },
+    "link": {
+      "button": 101,
+      "link": 85,
+      "input": 0,
+      "checkbox": 0,
+      "icon": 0,
+      "text": 37,
+      "image": 0,
+      "missed": 0
+    },
+    "input": {
+      "button": 0,
+      "link": 0,
+      "input": 49,
+      "checkbox": 0,
+      "icon": 0,
+      "text": 0,
+      "image": 0,
+      "missed": 36
+    },
+    "checkbox": {
+      "button": 0,
+      "link": 0,
+      "input": 0,
+      "checkbox": 8,
+      "icon": 3,
+      "text": 0,
+      "image": 0,
+      "missed": 14
+    },
+    "icon": {
+      "button": 0,
+      "link": 0,
+      "input": 0,
+      "checkbox": 0,
+      "icon": 4,
+      "text": 9,
+      "image": 0,
+      "missed": 47
+    },
+    "text": {
+      "button": 0,
+      "link": 21,
+      "input": 12,
+      "checkbox": 3,
+      "icon": 0,
+      "text": 187,
+      "image": 0,
+      "missed": 15
+    },
+    "image": {
+      "button": 9,
+      "link": 1,
+      "input": 3,
+      "checkbox": 0,
+      "icon": 11,
+      "text": 0,
+      "image": 29,
+      "missed": 114
+    }
+  },
+  "rules_end_to_end": {
+    "target-size": {
+      "tp": 253,
+      "fp": 127,
+      "fn": 119,
+      "precision": 0.666,
+      "recall": 0.68,
+      "f1": 0.673
+    },
+    "text-contrast": {
+      "tp": 321,
+      "fp": 104,
+      "fn": 60,
+      "precision": 0.755,
+      "recall": 0.843,
+      "f1": 0.797
+    },
+    "visible-label": {
+      "tp": 17,
+      "fp": 53,
+      "fn": 10,
+      "precision": 0.243,
+      "recall": 0.63,
+      "f1": 0.351
+    }
+  },
+  "dataset": "eval/data/synth-test"
+}

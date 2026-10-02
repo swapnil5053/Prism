@@ -1,0 +1,53 @@
+{
+  "a": [
+    "eval/results/heldout-qwen25-3b-nf4-896-p4-ocr-060-119.pages.jsonl"
+  ],
+  "b": [
+    "eval/results/heldout-qwen25-7b-nf4-1280-p4-ocr-060-119.pages.jsonl"
+  ],
+  "text_source": "ocr",
+  "pages": 60,
+  "resamples": 2000,
+  "median_new_tokens": {
+    "a": 287.0,
+    "b": 208.5
+  },
+  "f1": {
+    "boxes": {
+      "a_f1": 0.766,
+      "b_f1": 0.799,
+      "difference": 0.033,
+      "ci95_low": 0.004,
+      "ci95_high": 0.06
+    },
+    "boxes_and_labels": {
+      "a_f1": 0.465,
+      "b_f1": 0.558,
+      "difference": 0.093,
+      "ci95_low": 0.037,
+      "ci95_high": 0.146
+    },
+    "target-size": {
+      "a_f1": 0.673,
+      "b_f1": 0.623,
+      "difference": -0.05,
+      "ci95_low": -0.118,
+      "ci95_high": 0.013
+    },
+    "text-contrast": {
+      "a_f1": 0.797,
+      "b_f1": 0.81,
+      "difference": 0.013,
+      "ci95_low": -0.027,
+      "ci95_high": 0.053
+    },
+    "visible-label": {
+      "a_f1": 0.351,
+      "b_f1": 0.254,
+      "difference": -0.097,
+      "ci95_low": -0.299,
+      "ci95_high": 0.097
+    }
+  },
+  "dataset": "eval/data/synth-test"
+}

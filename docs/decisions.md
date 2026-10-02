@@ -17,10 +17,11 @@ handles both and converts to [0, 1] of the original image before anything
 else sees them. The vision encoder stays in bf16; only the language model is
 quantised.
 
-The 7B model at 1280 px is more accurate on everything but target size, and
-on this laptop it is also faster (see Speed below), at 6.8 GB of VRAM. 3B
-stays the default because it fits a 4 GB GPU. Switching is two environment
-variables.
+The 7B model at 1280 px finds and classifies elements better (on unseen
+pages, box+label F1 +0.09, interval +0.04 to +0.15), and on this laptop it is
+also faster (see Speed below), at 6.8 GB of VRAM. On the findings themselves
+60 held-out pages couldn't separate the two. 3B stays the default because it
+fits a 4 GB GPU. Switching is two environment variables.
 
 The output is treated as untrusted: parsed tolerantly (code fences, truncated
 arrays), validated with Pydantic, and rendered with `textContent` in the
@@ -65,7 +66,15 @@ With OCR doing the text, the VLM no longer needs to write it out, so prompt
 v4 asks only for controls and images and drops the "text" field. That also
 fixed input boxes ("box only the field itself" stuck once there were no
 labels to fold in): the label check rose from 0.24 to 0.34 on 3B and 0.28 to
-0.36 on 7B, for a small loss on target size. v4 with OCR is the default.
+0.36 on 7B, for a small loss on target size.
+
+That comparison was made on the same 60 pages as every earlier choice, so it
+was re-checked on 240 pages none of them had seen, with a paired bootstrap
+over pages (`prism-eval compare`). The label check gain held, +0.12 with a 95%
+interval of +0.05 to +0.20, and v4 wrote 26% fewer tokens. It also showed a
+real cost the 60 pages had hidden: boxes -0.02 and contrast -0.03, both with
+intervals excluding zero. v4 with OCR stays the default because the label
+check was the weakest rule, but it is a trade, not a free win.
 
 rapidocr depends on the desktop OpenCV build, which needs libGL at import
 and would break the slim worker image. A uv override swaps in the headless
@@ -139,5 +148,6 @@ demo without a login system.
 Real screenshot datasets rarely have exact colours or label relationships, so
 the audit rules are measured on generated pages rendered in Chromium, where
 the DOM gives exact ground truth. Rules were tuned on one seed and reported on
-another. The detector itself should also be measured on real screenshots; the
-dataset format is simple enough to convert one into.
+another. Prompt and model choices were made on the first 60 test pages and
+then checked on pages 60-299. The detector itself should also be measured on
+real screenshots; the dataset format is simple enough to convert one into.

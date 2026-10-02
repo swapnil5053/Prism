@@ -1,0 +1,55 @@
+{
+  "a": [
+    "eval/results/heldout-qwen25-3b-nf4-896-p2-ocr-060-119.pages.jsonl",
+    "eval/results/heldout-qwen25-3b-nf4-896-p2-ocr-120-299.pages.jsonl"
+  ],
+  "b": [
+    "eval/results/heldout-qwen25-3b-nf4-896-p4-ocr-060-119.pages.jsonl",
+    "eval/results/heldout-qwen25-3b-nf4-896-p4-ocr-120-299.pages.jsonl"
+  ],
+  "text_source": "ocr",
+  "pages": 240,
+  "resamples": 2000,
+  "median_new_tokens": {
+    "a": 386.0,
+    "b": 285.5
+  },
+  "f1": {
+    "boxes": {
+      "a_f1": 0.788,
+      "b_f1": 0.765,
+      "difference": -0.023,
+      "ci95_low": -0.039,
+      "ci95_high": -0.007
+    },
+    "boxes_and_labels": {
+      "a_f1": 0.55,
+      "b_f1": 0.483,
+      "difference": -0.068,
+      "ci95_low": -0.092,
+      "ci95_high": -0.042
+    },
+    "target-size": {
+      "a_f1": 0.697,
+      "b_f1": 0.676,
+      "difference": -0.021,
+      "ci95_low": -0.049,
+      "ci95_high": 0.006
+    },
+    "text-contrast": {
+      "a_f1": 0.82,
+      "b_f1": 0.794,
+      "difference": -0.025,
+      "ci95_low": -0.043,
+      "ci95_high": -0.008
+    },
+    "visible-label": {
+      "a_f1": 0.281,
+      "b_f1": 0.405,
+      "difference": 0.123,
+      "ci95_low": 0.046,
+      "ci95_high": 0.199
+    }
+  },
+  "dataset": "eval/data/synth-test"
+}
