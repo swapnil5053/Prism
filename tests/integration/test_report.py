@@ -40,6 +40,12 @@ async def test_reports_after_completion(client: AsyncClient, worker_ctx: dict[st
     data = (await client.get(f"/api/v1/analyses/{aid}/report", params={"format": "json"})).json()
     assert data["result"]["findings"][0]["rule"] == "target-size"
 
+    # The history list carries the two numbers its table shows, not the whole result.
+    [item] = (await client.get("/api/v1/analyses")).json()["items"]
+    assert item["finding_count"] == 1
+    assert item["score"] == data["result"]["score"]
+    assert "result" not in item
+
 
 async def test_report_is_private(
     app: FastAPI, client: AsyncClient, worker_ctx: dict[str, Any]

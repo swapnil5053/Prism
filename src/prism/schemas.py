@@ -19,6 +19,9 @@ class AnalysisSummary(BaseModel):
     image_height: int
     device_pixel_ratio: float
     created_at: datetime
+    # From the stored result, for the history list (None until it completes).
+    score: float | None = None
+    finding_count: int | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property

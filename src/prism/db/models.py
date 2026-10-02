@@ -80,3 +80,11 @@ class Analysis(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     workspace: Mapped[Workspace] = relationship(back_populates="analyses")
+
+    @property
+    def score(self) -> float | None:
+        return self.result.get("score") if self.result else None
+
+    @property
+    def finding_count(self) -> int | None:
+        return len(self.result.get("findings", [])) if self.result else None

@@ -107,6 +107,8 @@ def check(image: Image.Image, elements: list[Element], dpr: float) -> list[Findi
                 ),
                 measured=est.ratio,
                 required=required,
+                fg=_hex(est.text_rgb),
+                bg=_hex(est.background_rgb),
             )
         )
     return findings

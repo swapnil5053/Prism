@@ -83,6 +83,9 @@ class Finding(BaseModel):
     message: str
     measured: float | None = None
     required: float | None = None
+    # Contrast findings: the estimated text and background colours, as #rrggbb.
+    fg: str | None = None
+    bg: str | None = None
 
 
 class AnalysisResult(BaseModel):

@@ -74,6 +74,10 @@ def test_flags_low_contrast_text_only() -> None:
     assert finding.element_id == 3
     assert finding.required == 4.5
     assert finding.measured is not None and finding.measured < 3
+    # The colours are fields too, so the UI can draw swatches without parsing text.
+    assert finding.fg is not None and finding.fg.startswith("#") and len(finding.fg) == 7
+    assert finding.bg is not None
+    assert finding.fg in finding.message and finding.bg in finding.message
     assert finding.severity == "serious"
 
     assert contrast.check(ok, [el], dpr=1) == []
