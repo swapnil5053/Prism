@@ -8,7 +8,7 @@ from prism.config import Settings, get_settings
 from prism.db.session import make_engine, make_sessionmaker
 from prism.vision.base import Detector
 
-from .tasks import analyze
+from .tasks import analyze, fail_stale
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +36,8 @@ async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     engine = make_engine(settings)
     ctx.update(settings=settings, engine=engine, sessionmaker=make_sessionmaker(engine))
+    if stale := await fail_stale(ctx["sessionmaker"], settings.job_timeout_s):
+        log.warning("marked %d stale analyses as failed", stale)
     # Load once, before taking jobs: the first request shouldn't pay for it.
     ctx["detector"] = detector = load_detector(settings)
     log.info("detector ready: %s", detector.version)

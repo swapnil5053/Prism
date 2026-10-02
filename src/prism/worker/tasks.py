@@ -3,12 +3,13 @@ import logging
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -25,6 +26,7 @@ log = logging.getLogger(__name__)
 
 CANCEL_POLL_S = 0.5
 FAILED_MESSAGE = "Analysis failed. The error has been logged."
+STOPPED_MESSAGE = "Analysis didn't finish: it took too long or the worker stopped."
 
 
 async def analyze(ctx: dict[str, Any], analysis_id: str) -> str:
@@ -52,11 +54,20 @@ async def analyze(ctx: dict[str, Any], analysis_id: str) -> str:
     except DetectionCanceled:
         await _finish(sessions, redis, aid, AnalysisStatus.CANCELED)
         return "canceled"
+    except asyncio.CancelledError:
+        # arq's job timeout and worker shutdown cancel this task. Stop the
+        # generation thread too, and record why, or the row stays "running".
+        stop.set()
+        await asyncio.shield(
+            _finish(sessions, redis, aid, AnalysisStatus.FAILED, error=STOPPED_MESSAGE)
+        )
+        raise
     except Exception:
         log.exception("analysis %s failed", aid)
         await _finish(sessions, redis, aid, AnalysisStatus.FAILED, error=FAILED_MESSAGE)
         return "failed"
     finally:
+        stop.set()
         watcher.cancel()
 
     elapsed_ms = round((time.perf_counter() - started) * 1000)
@@ -130,10 +141,34 @@ async def _watch_cancel(redis: Redis, aid: uuid.UUID, stop: threading.Event) -> 
     # generation loop never waits on Redis.
     key = events.cancel_key(aid)
     while not stop.is_set():
-        if await redis.exists(key):
-            stop.set()
-            return
+        try:
+            if await redis.exists(key):
+                stop.set()
+                return
+        except RedisError:
+            log.warning("cancel check for %s failed; retrying", aid)
         await asyncio.sleep(CANCEL_POLL_S)
+
+
+async def fail_stale(sessions: async_sessionmaker[AsyncSession], older_than_s: int) -> int:
+    """Mark analyses that have been "running" longer than the job timeout as failed.
+
+    Covers a worker that crashed or was killed mid-job: nothing else would ever
+    finish those rows. Called when a worker starts.
+    """
+    cutoff = datetime.now(UTC) - timedelta(seconds=older_than_s)
+    async with sessions() as session:
+        rows = await session.execute(
+            update(Analysis)
+            .where(Analysis.status == AnalysisStatus.RUNNING, Analysis.started_at < cutoff)
+            .values(
+                status=AnalysisStatus.FAILED, error=STOPPED_MESSAGE, finished_at=datetime.now(UTC)
+            )
+            .returning(Analysis.id)
+        )
+        stale = len(rows.all())
+        await session.commit()
+    return stale
 
 
 def _load_image(upload_dir: Path, key: str) -> Image.Image:

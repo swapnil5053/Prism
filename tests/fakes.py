@@ -29,12 +29,14 @@ class FakeDetector:
         self.delay_s = delay_s
         self.error = error
         self.calls = 0
+        self.stopped = False
 
     def detect(self, image: Image.Image, should_stop: Callable[[], bool]) -> list[Element]:
         self.calls += 1
         deadline = time.monotonic() + self.delay_s
         while time.monotonic() < deadline:
             if should_stop():
+                self.stopped = True
                 raise DetectionCanceled
             time.sleep(0.02)
         if self.error:
